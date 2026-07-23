@@ -104,7 +104,8 @@ docker compose down -v          # stop and WIPE data (re-runs db/init on next up
 ## Build roadmap
 
 - [x] **Phase 0** — Scaffolding: Docker Compose, `.env.example`, README
-- [ ] **Phase 1** — MVP: Webhook → Groq → Pollinations → log → publish to Facebook
+- [x] **Phase 1** — MVP: Webhook → Groq → Pollinations → log → publish to Facebook
+      _(pipeline live; needs a Facebook Page token to publish. Workflow: `n8n/workflows/phase1-facebook.json`)_
 - [ ] **Phase 2** — Multi-platform fan-out + text/image fallbacks
 - [ ] **Phase 3** — sharp assembly microservice
 - [ ] **Phase 4** — Frontend form

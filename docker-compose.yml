@@ -49,11 +49,41 @@ services:
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?set N8N_ENCRYPTION_KEY in .env}
       # Local dev over http needs secure cookies disabled to log in.
       N8N_SECURE_COOKIE: ${N8N_SECURE_COOKIE:-false}
+      # Allow workflows to read process env via {{ $env.NAME }} (used for API keys).
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
       # --- Misc ---
       GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-UTC}
       N8N_DIAGNOSTICS_ENABLED: "false"
       N8N_PERSONALIZATION_ENABLED: "false"
       NODE_ENV: production
+      # --- App secrets/config exposed to workflows as $env.* ---
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-}
+      HUGGINGFACE_API_KEY: ${HUGGINGFACE_API_KEY:-}
+      HUGGINGFACE_IMAGE_MODEL: ${HUGGINGFACE_IMAGE_MODEL:-}
+      META_APP_ID: ${META_APP_ID:-}
+      META_APP_SECRET: ${META_APP_SECRET:-}
+      META_PAGE_ACCESS_TOKEN: ${META_PAGE_ACCESS_TOKEN:-}
+      FACEBOOK_PAGE_ID: ${FACEBOOK_PAGE_ID:-}
+      INSTAGRAM_BUSINESS_ACCOUNT_ID: ${INSTAGRAM_BUSINESS_ACCOUNT_ID:-}
+      X_API_KEY: ${X_API_KEY:-}
+      X_API_SECRET: ${X_API_SECRET:-}
+      X_ACCESS_TOKEN: ${X_ACCESS_TOKEN:-}
+      X_ACCESS_TOKEN_SECRET: ${X_ACCESS_TOKEN_SECRET:-}
+      X_BEARER_TOKEN: ${X_BEARER_TOKEN:-}
+      LINKEDIN_ACCESS_TOKEN: ${LINKEDIN_ACCESS_TOKEN:-}
+      LINKEDIN_ORGANIZATION_URN: ${LINKEDIN_ORGANIZATION_URN:-}
+      PINTEREST_ACCESS_TOKEN: ${PINTEREST_ACCESS_TOKEN:-}
+      PINTEREST_BOARD_ID: ${PINTEREST_BOARD_ID:-}
+      TIKTOK_CLIENT_KEY: ${TIKTOK_CLIENT_KEY:-}
+      TIKTOK_CLIENT_SECRET: ${TIKTOK_CLIENT_SECRET:-}
+      TIKTOK_ACCESS_TOKEN: ${TIKTOK_ACCESS_TOKEN:-}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      ASSEMBLY_URL: ${ASSEMBLY_URL:-http://assembly:3000}
       # Lets the sharp assembly microservice be reached as http://assembly:3000
       # from inside n8n Code/HTTP nodes.
     volumes:
