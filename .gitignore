@@ -1,0 +1,27 @@
+# Secrets — never commit
+.env
+.env.local
+*.pem
+*.key
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+dist/
+build/
+.next/
+
+# n8n local runtime data (persisted in a Docker volume instead)
+.n8n/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log
