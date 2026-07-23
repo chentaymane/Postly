@@ -98,8 +98,28 @@ docker compose down -v          # stop and WIPE data (re-runs db/init on next up
 ├── db/init/01-init.sql       # creates `postly` DB + post_logs table
 ├── n8n/workflows/            # exported workflow JSON (importable)
 ├── services/assembly/        # Phase 3: sharp overlay microservice
-└── frontend/                 # Phase 4: single-input web form
+└── frontend/                 # Next.js dashboard (connections + create post)
 ```
+
+## Frontend dashboard (Metricool-style connections)
+
+A Next.js app in `frontend/` provides:
+
+- **Connections** page — one-click OAuth to connect social accounts; tokens are
+  stored in the `social_connections` table (never in the browser).
+- **Create Post** page — theme/tone/destination form + platform picker that
+  POSTs to the n8n webhooks; the publish proxy injects each account's stored
+  token server-side.
+
+```bash
+cd frontend
+npm install
+npm run dev        # http://localhost:3000
+```
+
+Each platform needs its OAuth **client ID/secret** registered once (see
+`frontend/.env.local`). Redirect URI to register per platform:
+`http://localhost:3000/api/oauth/<platform>/callback`.
 
 ## Build roadmap
 
