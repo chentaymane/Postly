@@ -21,6 +21,7 @@ export async function GET() {
       `SELECT id, platform, account_name, account_id, status,
               extra->>'board_id' AS board_id, extra->>'board_name' AS board_name,
               COALESCE(extra->'boards', '[]'::jsonb) AS boards,
+              extra->>'page_name' AS page_name, extra->>'ig_username' AS ig_username,
               updated_at
          FROM social_connections
         WHERE status = 'connected' AND user_id = $1

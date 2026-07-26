@@ -32,6 +32,8 @@ export async function GET(request, { params }) {
     let conn;
     if (key === 'pinterest') {
       conn = await connectPinterest(p, code);
+    } else if (p.kind === 'meta') {
+      conn = await connectMeta(p, code, key);
     } else {
       return fail(`${key} connect not implemented yet`);
     }
@@ -101,6 +103,110 @@ async function connectPinterest(p, code) {
       boards,
       board_id: boards[0]?.id || null,
       board_name: boards[0]?.name || null,
+    },
+  };
+}
+
+// Facebook + Instagram. Exchanges the code for a user token, upgrades it to a
+// long-lived one, then stores the Page token (Page tokens derived from a
+// long-lived user token do not expire) plus any linked IG Business account.
+async function connectMeta(p, code, key) {
+  const clientId = process.env[p.clientIdEnv];
+  const clientSecret = process.env[p.clientSecretEnv];
+  const graph = 'https://graph.facebook.com/v21.0';
+
+  // 1. code -> short-lived user token
+  const tokenRes = await fetch(
+    `${p.tokenUrl}?${new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: redirectUri(key),
+      code,
+    })}`
+  );
+  const token = await tokenRes.json();
+  if (!tokenRes.ok || !token.access_token) {
+    throw new Error(token?.error?.message || 'token exchange failed');
+  }
+
+  // 2. upgrade to a long-lived (~60 day) user token
+  let userToken = token.access_token;
+  try {
+    const llRes = await fetch(
+      `${graph}/oauth/access_token?${new URLSearchParams({
+        grant_type: 'fb_exchange_token',
+        client_id: clientId,
+        client_secret: clientSecret,
+        fb_exchange_token: userToken,
+      })}`
+    );
+    const ll = await llRes.json();
+    if (llRes.ok && ll.access_token) userToken = ll.access_token;
+  } catch { /* keep the short-lived token rather than failing the connect */ }
+
+  // 3. list Pages and any linked Instagram Business accounts
+  const pagesRes = await fetch(
+    `${graph}/me/accounts?fields=id,name,access_token,instagram_business_account{id,username}&access_token=${encodeURIComponent(userToken)}`
+  );
+  const pagesJson = await pagesRes.json();
+  if (!pagesRes.ok) {
+    throw new Error(pagesJson?.error?.message || 'could not list Pages');
+  }
+
+  const pages = (pagesJson.data || []).map((pg) => ({
+    id: pg.id,
+    name: pg.name,
+    access_token: pg.access_token,
+    ig_user_id: pg.instagram_business_account?.id || null,
+    ig_username: pg.instagram_business_account?.username || null,
+  }));
+
+  if (pages.length === 0) {
+    throw new Error(
+      'no Facebook Page found on this account. Create a Page (and for Instagram, link a Business/Creator account to it), then reconnect.'
+    );
+  }
+
+  if (key === 'instagram') {
+    const withIg = pages.find((pg) => pg.ig_user_id);
+    if (!withIg) {
+      throw new Error(
+        'no Instagram Business account is linked to your Facebook Page. In Meta Business settings, convert your Instagram account to Business/Creator and link it to the Page, then reconnect.'
+      );
+    }
+    return {
+      platform: 'instagram',
+      account_name: withIg.ig_username,
+      account_id: withIg.ig_user_id,
+      access_token: withIg.access_token, // Page token publishes on IG's behalf
+      refresh_token: null,
+      token_expires_at: null,
+      scopes: p.scopes.join(','),
+      extra: {
+        ig_user_id: withIg.ig_user_id,
+        ig_username: withIg.ig_username,
+        page_id: withIg.id,
+        page_name: withIg.name,
+      },
+    };
+  }
+
+  const page = pages[0];
+  return {
+    platform: 'facebook',
+    account_name: page.name,
+    account_id: page.id,
+    access_token: page.access_token,
+    refresh_token: null,
+    token_expires_at: null,
+    scopes: p.scopes.join(','),
+    extra: {
+      page_id: page.id,
+      page_name: page.name,
+      ig_user_id: page.ig_user_id,
+      ig_username: page.ig_username,
+      // Stored without tokens so the UI can offer a Page picker later.
+      pages: pages.map(({ id, name }) => ({ id, name })),
     },
   };
 }

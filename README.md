@@ -91,12 +91,18 @@ on the dashboard becomes a live **Connect** button — OAuth popup, done.
 
 | Platform  | Status      | Notes |
 |-----------|-------------|-------|
-| Pinterest | ✅ wired    | `http://localhost` redirect allowed; needs a Business account + board |
-| Facebook  | 🔜 planned  | Needs a Page + `pages_manage_posts` |
-| Instagram | 🔜 planned  | Business/Creator account linked to a Page |
+| Pinterest | ✅ wired    | Business account + board. **App secret is withheld until Pinterest grants trial access** |
+| Instagram | ✅ wired    | Business/Creator account **linked to a Facebook Page**; two-step container publish |
+| Facebook  | ✅ wired    | Publishes a photo + caption to a Page |
 | X         | 🔜 planned  | Requires HTTPS redirect |
-| LinkedIn  | 🔜 planned  | Requires HTTPS redirect |
+| LinkedIn  | 🔜 planned  | Company Page needs review |
 | TikTok    | 🔜 planned  | Stricter app review |
+
+**Facebook and Instagram share one Meta app** — one client ID/secret
+(`META_CLIENT_ID` / `META_CLIENT_SECRET`) and one OAuth flow. Connecting either
+retrieves your Page token; Instagram publishing uses that same Page token via
+the linked Business account. A Meta app in **Development mode** can publish to
+accounts you own without app review.
 
 > Platforms other than Pinterest generally reject `http://localhost` redirect
 > URIs — deploy first (below) and use the Vercel HTTPS URL for those.

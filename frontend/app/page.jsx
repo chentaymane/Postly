@@ -81,6 +81,7 @@ function Dashboard() {
                       <div key={c.id}>
                         <div className="account-line">
                           <span>@{c.account_name || c.account_id}</span>
+                          {c.page_name && p.key === 'instagram' && <span>· via {c.page_name}</span>}
                         </div>
                         {p.key === 'pinterest' && (c.boards?.length > 0) && (
                           <div className="field" style={{ marginTop: 10 }}>
@@ -108,7 +109,8 @@ function Dashboard() {
                       <button className="btn btn-outline btn-block" disabled>Needs app setup</button>
                       <p className="hint">
                         Register a {p.name} app, then add its client ID/secret to your env.
-                        Redirect URI:
+                        {p.requirement && <> Requires: {p.requirement}.</>}
+                        {' '}Redirect URI:
                         <code className="code-inline">{data.baseUrl}/api/oauth/{p.key}/callback</code>
                       </p>
                     </div>

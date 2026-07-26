@@ -2,6 +2,17 @@
 // `enabled: true` means the Connect flow is wired up. Others render as
 // "coming soon" cards in the dashboard.
 
+// Requested for both Facebook and Instagram so a single connection can publish
+// to either. In a Meta app in Development mode these work for accounts you own
+// without app review.
+const META_SCOPES = [
+  'pages_show_list',
+  'pages_read_engagement',
+  'pages_manage_posts',
+  'instagram_basic',
+  'instagram_content_publish',
+];
+
 export const PLATFORMS = {
   pinterest: {
     name: 'Pinterest',
@@ -15,14 +26,17 @@ export const PLATFORMS = {
     clientIdEnv: 'PINTEREST_CLIENT_ID',
     clientSecretEnv: 'PINTEREST_CLIENT_SECRET',
   },
+  // Facebook and Instagram share one Meta app, one OAuth flow, and one set of
+  // scopes — connecting either yields a Page token usable for both.
   facebook: {
     name: 'Facebook',
     color: '#1877F2',
     emoji: '👍',
-    enabled: false,
+    enabled: true,
+    kind: 'meta',
     authorizeUrl: 'https://www.facebook.com/v21.0/dialog/oauth',
     tokenUrl: 'https://graph.facebook.com/v21.0/oauth/access_token',
-    scopes: ['pages_show_list', 'pages_manage_posts', 'pages_read_engagement'],
+    scopes: META_SCOPES,
     scopeSeparator: ',',
     clientIdEnv: 'META_CLIENT_ID',
     clientSecretEnv: 'META_CLIENT_SECRET',
@@ -31,9 +45,16 @@ export const PLATFORMS = {
     name: 'Instagram',
     color: '#E4405F',
     emoji: '📷',
-    enabled: false,
+    enabled: true,
+    kind: 'meta',
+    authorizeUrl: 'https://www.facebook.com/v21.0/dialog/oauth',
+    tokenUrl: 'https://graph.facebook.com/v21.0/oauth/access_token',
+    scopes: META_SCOPES,
+    scopeSeparator: ',',
     clientIdEnv: 'META_CLIENT_ID',
     clientSecretEnv: 'META_CLIENT_SECRET',
+    // Publishing requires a Business/Creator account linked to a Page.
+    requirement: 'Instagram Business or Creator account linked to a Facebook Page',
   },
   x: {
     name: 'X (Twitter)',
@@ -69,6 +90,7 @@ export function publicCatalog() {
     color: p.color,
     emoji: p.emoji,
     enabled: p.enabled,
+    requirement: p.requirement || null,
     configured: p.enabled ? Boolean(process.env[p.clientIdEnv] && process.env[p.clientSecretEnv]) : false,
   }));
 }

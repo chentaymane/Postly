@@ -218,6 +218,56 @@ export const publishers = {
     return { post_id: json.id || null, raw: json };
   },
 
+  // Instagram is a two-step publish: create a media container from a public
+  // image URL, then publish the container once processing completes.
+  async instagram(conn, content) {
+    const igUserId = conn.extra?.ig_user_id || conn.account_id;
+    if (!igUserId) throw new Error('no Instagram Business account on this connection');
+
+    const graph = 'https://graph.facebook.com/v21.0';
+    const caption = [content.caption, content.cta, content.hashtags]
+      .filter(Boolean)
+      .join('\n\n')
+      .slice(0, 2200); // Instagram caption limit
+
+    // 1. create the container
+    const createRes = await fetch(`${graph}/${igUserId}/media`, {
+      method: 'POST',
+      body: new URLSearchParams({
+        image_url: content.imageUrl,
+        caption,
+        access_token: conn.access_token,
+      }),
+      signal: AbortSignal.timeout(60000),
+    });
+    const created = await createRes.json().catch(() => ({}));
+    if (!createRes.ok || !created.id) {
+      throw new Error(created?.error?.message || `Instagram container HTTP ${createRes.status}`);
+    }
+
+    // 2. publish, retrying briefly while the container finishes processing
+    let lastError = null;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const pubRes = await fetch(`${graph}/${igUserId}/media_publish`, {
+        method: 'POST',
+        body: new URLSearchParams({
+          creation_id: created.id,
+          access_token: conn.access_token,
+        }),
+        signal: AbortSignal.timeout(60000),
+      });
+      const published = await pubRes.json().catch(() => ({}));
+      if (pubRes.ok && published.id) {
+        return { post_id: published.id, raw: { container: created.id, ...published } };
+      }
+      lastError = published?.error?.message || `Instagram publish HTTP ${pubRes.status}`;
+      // Only a not-ready container is worth retrying.
+      if (!/not ready|still processing|media.*process/i.test(lastError)) break;
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+    throw new Error(lastError || 'Instagram publish failed');
+  },
+
   async facebook(conn, content) {
     const pageId = conn.extra?.page_id || conn.account_id;
     if (!pageId) throw new Error('no Facebook Page selected for this account');
