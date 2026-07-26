@@ -26,38 +26,30 @@ export function PlatformIcon({ platform, size = 22 }) {
   );
 }
 
-// Postly mark: a chick in a rounded-square badge, drawn from primitives so it
-// stays crisp at any size.
-export function PostlyMark({ size = 34 }) {
+// Postly mark: a geometric "P" counter-form cut from a gradient badge. The
+// negative space doubles as a send/publish arrow.
+export function PostlyMark({ size = 34, id = 'postlyGrad' }) {
   return (
     <svg width={size} height={size} viewBox="0 0 40 40" aria-hidden="true">
       <defs>
-        <linearGradient id="postlyGrad" x1="0" y1="0" x2="1" y2="1">
+        <linearGradient id={id} x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stopColor="var(--brand-2)" />
           <stop offset="100%" stopColor="var(--brand-3)" />
         </linearGradient>
       </defs>
-      <rect x="0" y="0" width="40" height="40" rx="11" fill="url(#postlyGrad)" />
-      {/* body */}
-      <circle cx="19" cy="23" r="8.4" fill="var(--brand-4)" />
-      {/* head */}
-      <circle cx="19" cy="14.6" r="6.1" fill="var(--brand-4)" />
-      {/* tuft */}
-      <path d="M19 8.4c.2-1.9 1.3-3 2.9-3.4-.5 1.5-.4 2.6.4 3.5-1.1.2-2.2.2-3.3-.1z" fill="var(--brand-4)" />
-      {/* beak */}
-      <path d="M25.1 14.9l4.3 1.7-4.3 1.7z" fill="var(--brand-1)" />
-      {/* eye */}
-      <circle cx="21.3" cy="13.7" r="1.5" fill="var(--brand-1)" />
-      {/* wing */}
-      <path d="M15 21.5c2.6-.8 4.6.2 5.6 2.7-2.3 1-4.3.2-5.6-2.7z" fill="var(--brand-3)" opacity="0.75" />
+      <rect width="40" height="40" rx="11" fill={`url(#${id})`} />
+      <path
+        d="M13.4 29.5V10.5h8.9c4.3 0 7.1 2.6 7.1 6.6s-2.8 6.7-7.1 6.7h-4.4v5.7zM17.9 20h3.9c1.9 0 3-1.1 3-2.9s-1.1-2.8-3-2.8h-3.9z"
+        fill="var(--brand-4)"
+      />
     </svg>
   );
 }
 
-export function PostlyLogo({ size = 34, showWordmark = true }) {
+export function PostlyLogo({ size = 32, showWordmark = true, markId }) {
   return (
     <span className="logo">
-      <PostlyMark size={size} />
+      <PostlyMark size={size} id={markId} />
       {showWordmark && <span className="logo-word">Postly</span>}
     </span>
   );

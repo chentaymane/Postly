@@ -103,12 +103,14 @@ h1, h2, h3, h4 { letter-spacing: -0.021em; }
 
 /* ---------------------------------------------------------------- Logo ---- */
 
-.logo { display: inline-flex; align-items: center; gap: 10px; }
+.logo { display: inline-flex; align-items: center; gap: 9px; }
 .logo-word {
-  font-size: 20px;
+  font-size: 20.5px;
   font-weight: 700;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.035em;
   color: var(--text);
+  /* Optical alignment: the wordmark sits marginally high next to the badge. */
+  transform: translateY(-0.5px);
 }
 
 /* -------------------------------------------------------------- Header ---- */
