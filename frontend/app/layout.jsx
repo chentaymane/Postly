@@ -1,49 +1,24 @@
 import './globals.css';
-import { auth, signOut } from '../lib/auth';
 
 export const metadata = {
   title: 'Postly — AI Social Publishing',
-  description: 'Generate and publish AI marketing content to all your social platforms.',
+  description:
+    'Generate marketing copy and images with AI, then publish to all your social platforms in one click.',
 };
 
-export default async function RootLayout({ children }) {
-  const session = await auth();
-  const user = session?.user;
+export const viewport = {
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#FAF6F6' },
+    { media: '(prefers-color-scheme: dark)', color: '#0E1030' },
+  ],
+};
 
-  async function doSignOut() {
-    'use server';
-    await signOut({ redirectTo: '/login' });
-  }
-
+// Root layout only owns the document shell. The chrome (header/footer) lives in
+// the (app) group so full-bleed pages like sign-in can opt out of it.
+export default function RootLayout({ children }) {
   return (
     <html lang="en">
-      <body>
-        <header className="topbar">
-          <a className="brand" href="/">
-            <span className="brand-mark">◆</span> Postly
-          </a>
-          {user ? (
-            <nav className="topnav">
-              <a href="/">Connections</a>
-              <a href="/create">Create Post</a>
-              <a href="/history">History</a>
-              <span className="topnav-user">{user.email}</span>
-              <form action={doSignOut} style={{ display: 'inline' }}>
-                <button className="link-btn" type="submit">Sign out</button>
-              </form>
-            </nav>
-          ) : (
-            <nav className="topnav">
-              <a href="/login">Sign in</a>
-            </nav>
-          )}
-        </header>
-        <main className="container">{children}</main>
-        <footer className="footer">
-          <a href="/privacy">Privacy Policy</a>
-          <a href="/terms">Terms of Service</a>
-        </footer>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }
