@@ -60,6 +60,23 @@ a { color: inherit; text-decoration: none; }
 }
 .link-btn:hover { text-decoration: underline; }
 
+/* Legal pages (privacy / terms) */
+.legal { max-width: 720px; font-size: 15px; line-height: 1.7; }
+.legal h1 { font-size: 30px; margin: 0 0 4px; letter-spacing: -0.02em; }
+.legal h2 { font-size: 18px; margin: 34px 0 10px; }
+.legal p, .legal li { color: #c8ccd3; }
+.legal ul { padding-left: 20px; }
+.legal li { margin-bottom: 8px; }
+.legal-meta { color: var(--text-dim); font-size: 13px; margin: 0 0 28px; }
+
+.footer {
+  border-top: 1px solid var(--border);
+  margin-top: 60px; padding: 22px 28px;
+  display: flex; gap: 18px; justify-content: center;
+  font-size: 13px; color: var(--text-dim);
+}
+.footer a:hover { color: var(--text); }
+
 /* Auth screens */
 .auth-wrap { display: grid; place-items: center; min-height: 62vh; }
 .auth-card {
