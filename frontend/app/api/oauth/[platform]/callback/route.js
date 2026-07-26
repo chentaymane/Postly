@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
-import { PLATFORMS, redirectUri } from '../../../../../lib/platforms';
+import { PLATFORMS, redirectUri, appBaseUrl } from '../../../../../lib/platforms';
 import { query } from '../../../../../lib/db';
 
 export const runtime = 'nodejs';
 
 export async function GET(request, { params }) {
   const key = params.platform;
-  const base = process.env.APP_BASE_URL || 'http://localhost:3000';
+  const base = appBaseUrl();
   const url = new URL(request.url);
   const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');

@@ -73,7 +73,17 @@ export function publicCatalog() {
   }));
 }
 
+// Public base URL of this app. Explicit APP_BASE_URL wins; on Vercel we fall
+// back to the stable production domain (NOT VERCEL_URL, which changes every
+// deploy and would break the exact redirect-URI match platforms require).
+export function appBaseUrl() {
+  if (process.env.APP_BASE_URL) return process.env.APP_BASE_URL.replace(/\/$/, '');
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+  }
+  return 'http://localhost:3000';
+}
+
 export function redirectUri(platformKey) {
-  const base = process.env.APP_BASE_URL || 'http://localhost:3000';
-  return `${base}/api/oauth/${platformKey}/callback`;
+  return `${appBaseUrl()}/api/oauth/${platformKey}/callback`;
 }

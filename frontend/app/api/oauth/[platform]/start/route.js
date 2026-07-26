@@ -1,13 +1,13 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { PLATFORMS, redirectUri } from '../../../../../lib/platforms';
+import { PLATFORMS, redirectUri, appBaseUrl } from '../../../../../lib/platforms';
 
 export const runtime = 'nodejs';
 
 export async function GET(request, { params }) {
   const key = params.platform;
   const p = PLATFORMS[key];
-  const base = process.env.APP_BASE_URL || 'http://localhost:3000';
+  const base = appBaseUrl();
 
   if (!p || !p.enabled) {
     return NextResponse.redirect(`${base}/?error=${encodeURIComponent('platform not available')}`);

@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server';
 import { query } from '../../../lib/db';
-import { publicCatalog } from '../../../lib/platforms';
+import { publicCatalog, appBaseUrl } from '../../../lib/platforms';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
   const platforms = publicCatalog();
+  const baseUrl = appBaseUrl();
   let connections = [];
   try {
     const { rows } = await query(
@@ -23,5 +24,5 @@ export async function GET() {
     // Table may not exist yet — surface empty list rather than crashing the UI.
     connections = [];
   }
-  return NextResponse.json({ platforms, connections });
+  return NextResponse.json({ platforms, connections, baseUrl });
 }

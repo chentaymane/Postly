@@ -102,9 +102,14 @@ function Dashboard() {
                   {!p.enabled ? (
                     <button className="btn btn-outline btn-block" disabled>Not available yet</button>
                   ) : !p.configured ? (
-                    <button className="btn btn-outline btn-block" disabled title="Add client ID/secret to .env.local">
-                      Needs app setup
-                    </button>
+                    <div style={{ width: '100%' }}>
+                      <button className="btn btn-outline btn-block" disabled>Needs app setup</button>
+                      <p className="hint">
+                        Register a {p.name} app, then add its client ID/secret to your env.
+                        Redirect URI:
+                        <code className="code-inline">{data.baseUrl}/api/oauth/{p.key}/callback</code>
+                      </p>
+                    </div>
                   ) : isConnected ? (
                     <>
                       <a className="btn btn-outline btn-block" href={`/api/oauth/${p.key}/start`}>Reconnect</a>
