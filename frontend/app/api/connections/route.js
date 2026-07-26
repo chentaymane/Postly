@@ -1,13 +1,20 @@
 import { NextResponse } from 'next/server';
 import { query } from '../../../lib/db';
 import { publicCatalog, appBaseUrl } from '../../../lib/platforms';
+import { currentUserId } from '../../../lib/auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
+  const userId = await currentUserId();
+  if (!userId) {
+    return NextResponse.json({ error: 'not authenticated' }, { status: 401 });
+  }
+
   const platforms = publicCatalog();
   const baseUrl = appBaseUrl();
+
   let connections = [];
   try {
     const { rows } = await query(
@@ -16,13 +23,15 @@ export async function GET() {
               COALESCE(extra->'boards', '[]'::jsonb) AS boards,
               updated_at
          FROM social_connections
-        WHERE status = 'connected'
-        ORDER BY updated_at DESC`
+        WHERE status = 'connected' AND user_id = $1
+        ORDER BY updated_at DESC`,
+      [userId]
     );
     connections = rows;
-  } catch (e) {
-    // Table may not exist yet — surface empty list rather than crashing the UI.
+  } catch {
+    // Table missing / DB unreachable — render an empty dashboard rather than 500.
     connections = [];
   }
+
   return NextResponse.json({ platforms, connections, baseUrl });
 }

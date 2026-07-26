@@ -1,12 +1,16 @@
 import { NextResponse } from 'next/server';
 import { PLATFORMS, redirectUri, appBaseUrl } from '../../../../../lib/platforms';
 import { query } from '../../../../../lib/db';
+import { currentUserId } from '../../../../../lib/auth';
 
 export const runtime = 'nodejs';
 
 export async function GET(request, { params }) {
   const key = params.platform;
   const base = appBaseUrl();
+
+  const userId = await currentUserId();
+  if (!userId) return NextResponse.redirect(`${base}/login`);
   const url = new URL(request.url);
   const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');
@@ -32,7 +36,7 @@ export async function GET(request, { params }) {
       return fail(`${key} connect not implemented yet`);
     }
 
-    await upsertConnection(conn);
+    await upsertConnection({ ...conn, user_id: userId });
     const res = NextResponse.redirect(`${base}/?connected=${encodeURIComponent(p.name)}`);
     res.cookies.set(`postly_oauth_state_${key}`, '', { maxAge: 0, path: '/' });
     return res;
@@ -104,9 +108,9 @@ async function connectPinterest(p, code) {
 async function upsertConnection(c) {
   await query(
     `INSERT INTO social_connections
-       (platform, account_name, account_id, access_token, refresh_token, token_expires_at, scopes, extra, status, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,'connected',now())
-     ON CONFLICT (platform, account_id) DO UPDATE SET
+       (user_id, platform, account_name, account_id, access_token, refresh_token, token_expires_at, scopes, extra, status, updated_at)
+     VALUES ($9,$1,$2,$3,$4,$5,$6,$7,$8::jsonb,'connected',now())
+     ON CONFLICT (user_id, platform, account_id) DO UPDATE SET
        account_name = EXCLUDED.account_name,
        access_token = EXCLUDED.access_token,
        refresh_token = EXCLUDED.refresh_token,
@@ -124,6 +128,7 @@ async function upsertConnection(c) {
       c.token_expires_at,
       c.scopes,
       JSON.stringify(c.extra || {}),
+      c.user_id,
     ]
   );
 }

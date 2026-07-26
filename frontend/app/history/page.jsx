@@ -1,16 +1,21 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 export default function HistoryPage() {
   const [posts, setPosts] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
   useEffect(() => {
     fetch('/api/history', { cache: 'no-store' })
-      .then((r) => r.json())
-      .then((d) => { setPosts(d.posts || []); setError(d.error || null); setLoading(false); })
+      .then((r) => {
+        if (r.status === 401) { router.push('/login'); return null; }
+        return r.json();
+      })
+      .then((d) => { if (!d) return; setPosts(d.posts || []); setError(d.error || null); setLoading(false); })
       .catch((e) => { setError(e.message); setLoading(false); });
   }, []);
 

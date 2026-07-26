@@ -255,15 +255,16 @@ export async function logPost(row) {
   try {
     const { rows } = await query(
       `INSERT INTO post_logs
-         (run_id, platform, status, post_id, error_message, theme, product_name, tone,
+         (user_id, run_id, platform, status, post_id, error_message, theme, product_name, tone,
           caption, hashtags, cta, image_url, destination_url, raw_request, raw_response)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb)
+       VALUES ($16,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb)
        RETURNING id`,
       [
         row.run_id, row.platform, row.status, row.post_id, row.error_message,
         row.theme, row.product_name, row.tone, row.caption, row.hashtags, row.cta,
         row.image_url, row.destination_url,
         JSON.stringify(row.raw_request || {}), JSON.stringify(row.raw_response || {}),
+        row.user_id,
       ]
     );
     return rows[0]?.id || null;
@@ -278,12 +279,13 @@ export async function logPost(row) {
 // Orchestration: run the full pipeline for one platform.
 // ---------------------------------------------------------------------------
 
-export async function runForPlatform({ runId, platform, conn, input }) {
+export async function runForPlatform({ runId, userId, platform, conn, input }) {
   const forPinterest = platform === 'pinterest';
   const prompts = buildPrompts({ ...input, forPinterest });
 
   const base = {
     run_id: runId,
+    user_id: userId,
     platform,
     theme: input.theme,
     product_name: input.productName || null,

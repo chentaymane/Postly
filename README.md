@@ -20,6 +20,7 @@ orchestrator, deployable free to Vercel + Neon.
         │
         ▼
  Next.js API routes
+   ├── /api/auth/*  ·  /api/signup             sign up / sign in (Auth.js)
    ├── /api/oauth/<platform>/{start,callback}   one-click account connect
    ├── /api/connections                        list / disconnect / pick board
    ├── /api/publish  ──► pipeline:
@@ -30,8 +31,12 @@ orchestrator, deployable free to Vercel + Neon.
    └── /api/history                            past posts + errors
         │
         ▼
- Postgres  ·  social_connections (tokens)  ·  post_logs (audit)
+ Postgres  ·  users  ·  social_connections (tokens)  ·  post_logs (audit)
 ```
+
+**Multi-tenant:** every connection and post row is owned by a `user_id`. All
+queries are scoped to the signed-in user, so accounts and history are private
+per user. Auth is Auth.js with email/password (bcrypt) and JWT sessions.
 
 | Concern          | Choice                                                  |
 |------------------|---------------------------------------------------------|
@@ -57,11 +62,23 @@ npm run dev                    # http://localhost:3000
 Required in `.env.local`:
 
 - `DATABASE_URL` — a free [Neon](https://neon.com) project's **pooled** connection string
+- `AUTH_SECRET` — signs sessions; generate with
+  `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`
 - `GROQ_API_KEY` — free key from [console.groq.com/keys](https://console.groq.com/keys)
-- `APP_BASE_URL` — `http://localhost:3000` locally
+- `APP_BASE_URL` — `http://localhost:3000` locally (auto-detected on Vercel)
 - Per platform: `<PLATFORM>_CLIENT_ID` / `_CLIENT_SECRET`
 
 ## Connecting a platform
+
+> **Who registers what:** *you*, the operator of this app, register one developer
+> app per platform — once, ever. Your **users never register anything**: they sign
+> up, click Connect, approve on the platform, and they're done. That is exactly how
+> Metricool/Buffer work.
+>
+> Note that platforms restrict new apps to the owner plus invited testers. Letting
+> the general public connect requires the platform's app review (Pinterest:
+> standard access; Meta: App Review + Business Verification; LinkedIn/TikTok
+> similar). Reviews expect a live app, a privacy policy, and a demo of the flow.
 
 Each platform needs a developer app registered **once**, with this redirect URI:
 
@@ -122,6 +139,7 @@ app deployable for free with no server to maintain.
 - [x] Create-post form with image/copy preview
 - [x] Post history view
 - [x] Pinterest publishing
+- [x] Multi-user accounts with per-user data scoping
 - [ ] Facebook, Instagram, X, LinkedIn connectors
 - [ ] Branding overlay (logo/text on generated images)
 - [ ] Scheduling (queue posts for later)

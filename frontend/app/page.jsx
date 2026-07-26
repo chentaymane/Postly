@@ -1,18 +1,20 @@
 'use client';
 
 import { useEffect, useState, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 
 function Dashboard() {
   const [data, setData] = useState({ platforms: [], connections: [] });
   const [loading, setLoading] = useState(true);
   const params = useSearchParams();
+  const router = useRouter();
   const connected = params.get('connected');
   const error = params.get('error');
 
   async function load() {
     setLoading(true);
     const res = await fetch('/api/connections', { cache: 'no-store' });
+    if (res.status === 401) { router.push('/login'); return; }
     const json = await res.json();
     setData(json);
     setLoading(false);

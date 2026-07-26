@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { PLATFORMS, redirectUri, appBaseUrl } from '../../../../../lib/platforms';
+import { currentUserId } from '../../../../../lib/auth';
 
 export const runtime = 'nodejs';
 
@@ -8,6 +9,10 @@ export async function GET(request, { params }) {
   const key = params.platform;
   const p = PLATFORMS[key];
   const base = appBaseUrl();
+
+  // Connections belong to a user, so require a session before starting OAuth.
+  const userId = await currentUserId();
+  if (!userId) return NextResponse.redirect(`${base}/login`);
 
   if (!p || !p.enabled) {
     return NextResponse.redirect(`${base}/?error=${encodeURIComponent('platform not available')}`);

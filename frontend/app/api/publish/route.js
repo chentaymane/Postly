@@ -3,12 +3,16 @@ import crypto from 'crypto';
 import { query } from '../../../lib/db';
 import { runForPlatform } from '../../../lib/pipeline';
 import { PLATFORMS } from '../../../lib/platforms';
+import { currentUserId } from '../../../lib/auth';
 
 export const runtime = 'nodejs';
 // Image generation can take ~30s; allow headroom (Vercel Hobby caps at 60s).
 export const maxDuration = 60;
 
 export async function POST(request) {
+  const userId = await currentUserId();
+  if (!userId) return NextResponse.json({ error: 'not authenticated' }, { status: 401 });
+
   let body;
   try {
     body = await request.json();
@@ -41,9 +45,9 @@ export async function POST(request) {
     `SELECT DISTINCT ON (platform)
             id, platform, account_name, account_id, access_token, extra
        FROM social_connections
-      WHERE status = 'connected' AND platform = ANY($1::text[])
+      WHERE status = 'connected' AND user_id = $2 AND platform = ANY($1::text[])
       ORDER BY platform, updated_at DESC`,
-    [platforms]
+    [platforms, userId]
   );
   const byPlatform = Object.fromEntries(rows.map((r) => [r.platform, r]));
 
@@ -58,7 +62,7 @@ export async function POST(request) {
         return { platform, ok: false, error: 'account not connected' };
       }
       try {
-        return await runForPlatform({ runId, platform, conn, input });
+        return await runForPlatform({ runId, userId, platform, conn, input });
       } catch (e) {
         return { platform, ok: false, error: e.message };
       }

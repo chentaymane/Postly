@@ -1,10 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 const TONES = ['friendly and engaging', 'warm and cozy', 'professional', 'playful', 'luxury / premium', 'bold and energetic'];
 
 export default function CreatePage() {
+  const router = useRouter();
   const [platforms, setPlatforms] = useState([]);
   const [connected, setConnected] = useState(new Set());
   const [selected, setSelected] = useState(new Set());
@@ -14,8 +16,12 @@ export default function CreatePage() {
 
   useEffect(() => {
     fetch('/api/connections', { cache: 'no-store' })
-      .then((r) => r.json())
+      .then((r) => {
+        if (r.status === 401) { router.push('/login'); return null; }
+        return r.json();
+      })
       .then((d) => {
+        if (!d) return;
         setPlatforms(d.platforms);
         const conn = new Set(d.connections.map((c) => c.platform));
         setConnected(conn);
