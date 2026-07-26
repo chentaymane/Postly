@@ -114,14 +114,38 @@ export default function CreatePage() {
         <div className="result">
           <h3>Results</h3>
           {results.map((r, i) => (
-            <div className="result-row" key={i}>
-              <span className={`pill ${r.ok ? 'connected' : 'disconnected'}`}>
-                <span className="dot" />{r.ok ? 'Published' : 'Failed'}
-              </span>
-              <strong>{r.platform}</strong>
-              <span className="empty">{r.ok ? (r.post_id ? `#${r.post_id}` : '') : (r.error || '')}</span>
+            <div key={i}>
+              <div className="result-row">
+                <span className={`pill ${r.ok ? 'connected' : 'disconnected'}`}>
+                  <span className="dot" />{r.ok ? 'Published' : 'Failed'}
+                </span>
+                <strong style={{ textTransform: 'capitalize' }}>{r.platform}</strong>
+                <span className="empty">
+                  {r.ok ? (r.post_id ? `#${r.post_id}` : '') : (r.error || '')}
+                </span>
+              </div>
+
+              {r.preview && (
+                <div className="preview">
+                  {r.preview.imageUrl && (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img className="preview-img" src={r.preview.imageUrl} alt="Generated post image" />
+                  )}
+                  <div className="preview-copy">
+                    {r.preview.pinTitle && r.platform === 'pinterest' && (
+                      <p className="preview-title">{r.preview.pinTitle}</p>
+                    )}
+                    <p>{r.preview.caption}</p>
+                    {r.preview.cta && <p className="preview-cta">{r.preview.cta}</p>}
+                    <p className="preview-tags">{r.preview.hashtags}</p>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
+          <p className="hint" style={{ marginTop: 14 }}>
+            Every attempt is logged — see <a href="/history">post history →</a>
+          </p>
         </div>
       )}
     </>

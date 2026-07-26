@@ -26,6 +26,15 @@ function Dashboard() {
     load();
   }
 
+  async function setBoard(id, boardId) {
+    await fetch(`/api/connections/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ board_id: boardId }),
+    });
+    load();
+  }
+
   const byPlatform = {};
   for (const c of data.connections) {
     (byPlatform[c.platform] = byPlatform[c.platform] || []).push(c);
@@ -67,9 +76,23 @@ function Dashboard() {
                 {isConnected && (
                   <div>
                     {conns.map((c) => (
-                      <div className="account-line" key={c.id}>
-                        <span>@{c.account_name || c.account_id}</span>
-                        {c.board_name && <span>· board: {c.board_name}</span>}
+                      <div key={c.id}>
+                        <div className="account-line">
+                          <span>@{c.account_name || c.account_id}</span>
+                        </div>
+                        {p.key === 'pinterest' && (c.boards?.length > 0) && (
+                          <div className="field" style={{ marginTop: 10 }}>
+                            <label>Board</label>
+                            <select
+                              value={c.board_id || ''}
+                              onChange={(e) => setBoard(c.id, e.target.value)}
+                            >
+                              {c.boards.map((b) => (
+                                <option key={b.id} value={b.id}>{b.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

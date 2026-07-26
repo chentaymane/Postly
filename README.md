@@ -1,140 +1,128 @@
 # Postly
 
-One-click AI marketing content generation & multi-platform social publishing, orchestrated with **n8n**.
+One-click AI marketing content generation & multi-platform social publishing.
 
-Enter a theme or product name (plus a few optional fields) and Postly:
+Enter a theme or product name, pick your connected accounts, and Postly:
 
 1. Generates marketing copy (caption, hashtags, CTA) with a free LLM
 2. Generates a matching promotional image with a free image model
-3. Assembles the two into a finished, branded post
-4. Publishes to the selected platforms — Instagram, Facebook, X, LinkedIn, TikTok, Pinterest
-5. Logs every post (platform, status, timestamp, content, IDs, errors) to Postgres
+3. Publishes to your connected platforms
+4. Logs every attempt (platform, status, post ID, errors) for tracking
 
 ## Architecture
 
+Postly runs as a single **Next.js** app — frontend, API, OAuth, and the
+generation pipeline — backed by **Postgres**. No Docker, no separate
+orchestrator, deployable free to Vercel + Neon.
+
 ```
- Web form ──POST──> n8n Webhook
-                        │
-                 Prompt builder (Code node)
-                    │            │
-        ┌───────────┘            └────────────┐
-   Text: Groq → OpenRouter      Image: Pollinations → Hugging Face
-        └───────────┐            ┌────────────┘
-                    Merge (wait for both)
-                        │
-              Assembly service (sharp overlay)
-                        │
-                 Switch on platforms[]
-     ┌────────┬────────┬────────┬────────┬────────┐
-    FB       IG        X      LinkedIn Pinterest TikTok
-     └────────┴────────┴────────┴────────┴────────┘
-                        │
-                 Log → Postgres (post_logs)
+ Browser (dashboard + create form)
+        │
+        ▼
+ Next.js API routes
+   ├── /api/oauth/<platform>/{start,callback}   one-click account connect
+   ├── /api/connections                        list / disconnect / pick board
+   ├── /api/publish  ──► pipeline:
+   │                       Groq  ──(fallback)──► OpenRouter      copy
+   │                       Pollinations (flux → turbo)           image
+   │                       platform publish API                  post
+   │                       post_logs insert                       log
+   └── /api/history                            past posts + errors
+        │
+        ▼
+ Postgres  ·  social_connections (tokens)  ·  post_logs (audit)
 ```
 
-## Tech stack
+| Concern          | Choice                                                  |
+|------------------|---------------------------------------------------------|
+| App + API        | Next.js 14 (App Router)                                 |
+| Text generation  | Groq (primary) → OpenRouter (fallback)                   |
+| Image generation | Pollinations.ai (`flux` → `turbo` fallback), no API key  |
+| Database         | Postgres — Neon free tier in prod                        |
+| Hosting          | Vercel (free) + Neon (free)                             |
+| Secrets          | `.env.local` locally, Vercel env vars in prod            |
 
-| Concern            | Choice                                                        |
-|--------------------|---------------------------------------------------------------|
-| Orchestration      | n8n (Docker Compose, self-hosted)                             |
-| Text generation    | Groq (primary) → OpenRouter (fallback)                        |
-| Image generation   | Pollinations.ai (primary) → Hugging Face Inference (fallback) |
-| Post assembly      | Node.js + `sharp` microservice (HTTP)                         |
-| Storage / logs     | Postgres                                                      |
-| Frontend           | Single-page web form → n8n webhook                            |
-| Secrets            | `.env` + n8n credentials store                                |
+Tokens are stored server-side and **never sent to the browser**.
 
-## Prerequisites
-
-- Docker & Docker Compose
-- Free API keys as you enable each provider/platform (see `.env.example`)
-
-## Phase 0 — Local setup
-
-1. **Clone & enter the repo**, then copy the env template:
-
-   ```bash
-   cp .env.example .env
-   ```
-
-2. **Generate an n8n encryption key** and paste it into `.env` as `N8N_ENCRYPTION_KEY`:
-
-   ```bash
-   openssl rand -hex 32
-   ```
-
-   Set a strong `POSTGRES_PASSWORD` too. (Groq/social keys can wait until their phase.)
-
-3. **Start the stack:**
-
-   ```bash
-   docker compose up -d
-   ```
-
-4. **Open n8n** at http://localhost:5678 and create the owner account (first run only).
-
-5. **Verify Postgres** — the `postly` database and `post_logs` table are created on first boot:
-
-   ```bash
-   docker compose exec postgres psql -U postly -d postly -c "\d post_logs"
-   ```
-
-### Common commands
+## Local setup
 
 ```bash
-docker compose logs -f n8n      # tail n8n logs
-docker compose down             # stop (keeps data)
-docker compose down -v          # stop and WIPE data (re-runs db/init on next up)
+cd frontend
+npm install
+cp .env.example .env.local     # then fill in the values
+npm run db:setup               # creates tables in DATABASE_URL
+npm run dev                    # http://localhost:3000
 ```
 
-> Changing `db/init/*.sql` only takes effect on a fresh volume. Run `docker compose down -v` to re-seed.
+Required in `.env.local`:
+
+- `DATABASE_URL` — a free [Neon](https://neon.com) project's **pooled** connection string
+- `GROQ_API_KEY` — free key from [console.groq.com/keys](https://console.groq.com/keys)
+- `APP_BASE_URL` — `http://localhost:3000` locally
+- Per platform: `<PLATFORM>_CLIENT_ID` / `_CLIENT_SECRET`
+
+## Connecting a platform
+
+Each platform needs a developer app registered **once**, with this redirect URI:
+
+```
+{APP_BASE_URL}/api/oauth/<platform>/callback
+```
+
+Paste its client ID/secret into `.env.local`, restart, and the platform's card
+on the dashboard becomes a live **Connect** button — OAuth popup, done.
+
+| Platform  | Status      | Notes |
+|-----------|-------------|-------|
+| Pinterest | ✅ wired    | `http://localhost` redirect allowed; needs a Business account + board |
+| Facebook  | 🔜 planned  | Needs a Page + `pages_manage_posts` |
+| Instagram | 🔜 planned  | Business/Creator account linked to a Page |
+| X         | 🔜 planned  | Requires HTTPS redirect |
+| LinkedIn  | 🔜 planned  | Requires HTTPS redirect |
+| TikTok    | 🔜 planned  | Stricter app review |
+
+> Platforms other than Pinterest generally reject `http://localhost` redirect
+> URIs — deploy first (below) and use the Vercel HTTPS URL for those.
+
+## Deploying free (Vercel + Neon)
+
+1. Create a **Neon** project → copy the pooled connection string.
+2. Push this repo to GitHub, then import it in **Vercel** with **root
+   directory = `frontend`**.
+3. Add the env vars from `.env.example` in Vercel, setting
+   `APP_BASE_URL` to your deployed URL (e.g. `https://postly.vercel.app`).
+4. Run `npm run db:setup` once against the Neon URL to create the tables.
+5. Update each platform app's redirect URI to the deployed URL.
 
 ## Repository layout
 
 ```
 .
-├── docker-compose.yml        # n8n + Postgres (+ assembly, enabled in Phase 3)
-├── .env.example              # every required key, documented
-├── db/init/01-init.sql       # creates `postly` DB + post_logs table
-├── n8n/workflows/            # exported workflow JSON (importable)
-├── services/assembly/        # Phase 3: sharp overlay microservice
-└── frontend/                 # Next.js dashboard (connections + create post)
+├── frontend/                 # the entire app (UI + API + pipeline)
+│   ├── app/                  # pages and API routes
+│   ├── lib/pipeline.js       # copy + image generation, publishers, logging
+│   ├── lib/platforms.js      # platform registry (OAuth + display metadata)
+│   ├── lib/schema.sql        # database schema
+│   └── scripts/db-setup.mjs  # applies the schema
+├── n8n/workflows/            # legacy: earlier n8n implementation (reference)
+├── db/init/                  # legacy: Postgres init for the Docker setup
+├── docker-compose.yml        # legacy: n8n + Postgres stack
+└── services/assembly/        # planned: sharp branding-overlay service
 ```
 
-## Frontend dashboard (Metricool-style connections)
+The `n8n` + Docker setup was the original backend and still works
+(`docker compose up -d`), but the Next.js pipeline supersedes it — keeping the
+app deployable for free with no server to maintain.
 
-A Next.js app in `frontend/` provides:
+## Roadmap
 
-- **Connections** page — one-click OAuth to connect social accounts; tokens are
-  stored in the `social_connections` table (never in the browser).
-- **Create Post** page — theme/tone/destination form + platform picker that
-  POSTs to the n8n webhooks; the publish proxy injects each account's stored
-  token server-side.
-
-```bash
-cd frontend
-npm install
-npm run dev        # http://localhost:3000
-```
-
-Each platform needs its OAuth **client ID/secret** registered once (see
-`frontend/.env.local`). Redirect URI to register per platform:
-`http://localhost:3000/api/oauth/<platform>/callback`.
-
-## Build roadmap
-
-- [x] **Phase 0** — Scaffolding: Docker Compose, `.env.example`, README
-- [x] **Phase 1** — MVP: Webhook → Groq → Pollinations → log → publish to Facebook
-      _(pipeline live; needs a Facebook Page token to publish. Workflow: `n8n/workflows/phase1-facebook.json`)_
-- [ ] **Phase 2** — Multi-platform fan-out + text/image fallbacks
-- [ ] **Phase 3** — sharp assembly microservice
-- [ ] **Phase 4** — Frontend form
-- [ ] **Phase 5** — Error handling, retries, rate-limit backoff
-- [ ] **Phase 6** — TikTok + scheduling
-
-## Security notes
-
-- `.env` is gitignored — keep it that way. Store platform tokens in the n8n
-  credentials store where possible; use env values only for bootstrapping.
-- `WEBHOOK_URL` must be publicly reachable (e.g. via a tunnel or a real domain)
-  for OAuth callbacks and Instagram/Meta publishing to work.
+- [x] Generation pipeline (Groq + Pollinations, with fallbacks)
+- [x] Postgres logging of every publish attempt
+- [x] Connections dashboard with one-click OAuth
+- [x] Create-post form with image/copy preview
+- [x] Post history view
+- [x] Pinterest publishing
+- [ ] Facebook, Instagram, X, LinkedIn connectors
+- [ ] Branding overlay (logo/text on generated images)
+- [ ] Scheduling (queue posts for later)
+- [ ] TikTok

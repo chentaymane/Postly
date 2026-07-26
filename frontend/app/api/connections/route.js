@@ -12,6 +12,7 @@ export async function GET() {
     const { rows } = await query(
       `SELECT id, platform, account_name, account_id, status,
               extra->>'board_id' AS board_id, extra->>'board_name' AS board_name,
+              COALESCE(extra->'boards', '[]'::jsonb) AS boards,
               updated_at
          FROM social_connections
         WHERE status = 'connected'

@@ -16,6 +16,7 @@ export default function RootLayout({ children }) {
           <nav className="topnav">
             <a href="/">Connections</a>
             <a href="/create">Create Post</a>
+            <a href="/history">History</a>
           </nav>
         </header>
         <main className="container">{children}</main>

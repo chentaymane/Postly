@@ -1,77 +1,69 @@
 import { NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { query } from '../../../lib/db';
+import { runForPlatform } from '../../../lib/pipeline';
+import { PLATFORMS } from '../../../lib/platforms';
 
 export const runtime = 'nodejs';
-
-// Maps a platform key to its n8n webhook path.
-const WEBHOOK_PATH = {
-  pinterest: 'postly-pinterest',
-  facebook: 'postly-generate',
-};
+// Image generation can take ~30s; allow headroom (Vercel Hobby caps at 60s).
+export const maxDuration = 60;
 
 export async function POST(request) {
-  const body = await request.json();
-  const base = process.env.N8N_WEBHOOK_BASE || 'http://localhost:5678/webhook';
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'invalid JSON body' }, { status: 400 });
+  }
+
+  const theme = String(body.theme || '').trim();
   const platforms = Array.isArray(body.platforms) ? body.platforms : [];
 
-  if (!body.theme || platforms.length === 0) {
-    return NextResponse.json({ error: 'theme and at least one platform are required' }, { status: 400 });
+  if (!theme) {
+    return NextResponse.json({ error: 'theme is required' }, { status: 400 });
+  }
+  if (platforms.length === 0) {
+    return NextResponse.json({ error: 'select at least one platform' }, { status: 400 });
   }
 
-  const results = [];
+  const input = {
+    theme,
+    productName: String(body.productName || '').trim(),
+    description: String(body.description || '').trim(),
+    tone: String(body.tone || 'friendly and engaging').trim(),
+    destinationUrl: String(body.destinationUrl || '').trim(),
+  };
 
-  for (const key of platforms) {
-    const path = WEBHOOK_PATH[key];
-    if (!path) {
-      results.push({ platform: key, ok: false, error: 'no workflow wired for this platform yet' });
-      continue;
-    }
+  const runId = crypto.randomUUID();
 
-    // Pull the stored token for this platform (most recently connected).
-    const { rows } = await query(
-      `SELECT access_token, extra->>'board_id' AS board_id
-         FROM social_connections
-        WHERE platform = $1 AND status = 'connected'
-        ORDER BY updated_at DESC LIMIT 1`,
-      [key]
-    );
-    if (rows.length === 0) {
-      results.push({ platform: key, ok: false, error: 'account not connected' });
-      continue;
-    }
+  // Load the stored connection for each requested platform.
+  const { rows } = await query(
+    `SELECT DISTINCT ON (platform)
+            id, platform, account_name, account_id, access_token, extra
+       FROM social_connections
+      WHERE status = 'connected' AND platform = ANY($1::text[])
+      ORDER BY platform, updated_at DESC`,
+    [platforms]
+  );
+  const byPlatform = Object.fromEntries(rows.map((r) => [r.platform, r]));
 
-    const payload = {
-      theme: body.theme,
-      productName: body.productName || '',
-      description: body.description || '',
-      tone: body.tone || '',
-      destinationUrl: body.destinationUrl || '',
-      platforms: [key],
-    };
-    if (key === 'pinterest') {
-      payload.pinterestAccessToken = rows[0].access_token;
-      payload.pinterestBoardId = rows[0].board_id || '';
-    }
+  // Run platforms in parallel — each has its own image/copy and logs its own row.
+  const results = await Promise.all(
+    platforms.map(async (platform) => {
+      if (!PLATFORMS[platform]) {
+        return { platform, ok: false, error: 'unknown platform' };
+      }
+      const conn = byPlatform[platform];
+      if (!conn) {
+        return { platform, ok: false, error: 'account not connected' };
+      }
+      try {
+        return await runForPlatform({ runId, platform, conn, input });
+      } catch (e) {
+        return { platform, ok: false, error: e.message };
+      }
+    })
+  );
 
-    try {
-      const res = await fetch(`${base}/${path}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const text = await res.text();
-      let parsed; try { parsed = JSON.parse(text); } catch { parsed = { raw: text }; }
-      const ok = res.ok && parsed.status !== 'fail';
-      results.push({
-        platform: key,
-        ok,
-        post_id: parsed.post_id || null,
-        error: ok ? null : (parsed.error || parsed.raw || `HTTP ${res.status}`),
-      });
-    } catch (e) {
-      results.push({ platform: key, ok: false, error: e.message });
-    }
-  }
-
-  return NextResponse.json({ results });
+  return NextResponse.json({ run_id: runId, results });
 }
