@@ -103,14 +103,12 @@ h1, h2, h3, h4 { letter-spacing: -0.021em; }
 
 /* ---------------------------------------------------------------- Logo ---- */
 
-.logo { display: inline-flex; align-items: center; gap: 9px; }
 .logo-word {
-  font-size: 20.5px;
+  display: inline-block;
+  font-size: 22px;
   font-weight: 700;
-  letter-spacing: -0.035em;
+  letter-spacing: -0.04em;
   color: var(--text);
-  /* Optical alignment: the wordmark sits marginally high next to the badge. */
-  transform: translateY(-0.5px);
 }
 
 /* -------------------------------------------------------------- Header ---- */
@@ -155,7 +153,7 @@ h1, h2, h3, h4 { letter-spacing: -0.021em; }
   width: 30px; height: 30px;
   border-radius: 50%;
   display: grid; place-items: center;
-  background: linear-gradient(135deg, var(--brand-2), var(--brand-3));
+  background: var(--accent);
   color: #fff;
   font-size: 12px; font-weight: 700;
   flex-shrink: 0;
@@ -306,12 +304,13 @@ h1, h2, h3, h4 { letter-spacing: -0.021em; }
 }
 .field select {
   appearance: none;
-  background-image: linear-gradient(45deg, transparent 50%, var(--text-dim) 50%),
-                    linear-gradient(135deg, var(--text-dim) 50%, transparent 50%);
-  background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
-  background-size: 5px 5px, 5px 5px;
+  /* Chevron drawn as an inline SVG so no gradients are involved. */
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' fill='none' stroke='%237C7E99' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: calc(100% - 14px) 50%;
+  background-size: 11px 7px;
   background-repeat: no-repeat;
-  padding-right: 36px;
+  padding-right: 38px;
+  cursor: pointer;
 }
 .hint { font-size: 12.5px; color: var(--text-dim); margin-top: 7px; line-height: 1.5; }
 .hint a { color: var(--accent); font-weight: 600; }
@@ -373,7 +372,8 @@ h1, h2, h3, h4 { letter-spacing: -0.021em; }
 .mock-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
 .mock-avatar {
   width: 32px; height: 32px; border-radius: 50%;
-  background: linear-gradient(135deg, var(--brand-2), var(--brand-3));
+  background: var(--surface-2);
+  border: 1px solid var(--border);
   flex-shrink: 0;
 }
 .mock-name { font-size: 13.5px; font-weight: 650; }
@@ -455,35 +455,27 @@ h1, h2, h3, h4 { letter-spacing: -0.021em; }
 
 /* ---------------------------------------------------------------- Auth ---- */
 
-.auth-shell { display: grid; grid-template-columns: 1.05fr 1fr; min-height: 100vh; }
+.auth-shell { display: grid; grid-template-columns: 1.02fr 1fr; min-height: 100vh; }
 .auth-brand {
-  background: linear-gradient(150deg, var(--brand-1) 0%, #2A1E52 45%, var(--brand-2) 100%);
+  background: var(--brand-1);
   color: var(--brand-4);
-  padding: clamp(34px, 5vw, 60px);
+  padding: clamp(36px, 5vw, 64px);
   display: flex; flex-direction: column; justify-content: space-between;
-  position: relative; overflow: hidden;
-}
-.auth-brand::after {
-  content: '';
-  position: absolute; width: 460px; height: 460px;
-  right: -170px; bottom: -190px; border-radius: 50%;
-  background: radial-gradient(circle, var(--brand-3) 0%, transparent 68%);
-  opacity: 0.4;
 }
 .auth-brand .logo-word { color: var(--brand-4); }
-.auth-pitch { position: relative; z-index: 1; max-width: 24ch; }
-.auth-pitch h2 { font-size: clamp(27px, 3.4vw, 38px); line-height: 1.18; margin: 0 0 14px; }
-.auth-pitch p { color: color-mix(in srgb, var(--brand-4) 78%, transparent); font-size: 15px; margin: 0; }
-.auth-feats { list-style: none; padding: 0; margin: 28px 0 0; position: relative; z-index: 1; }
+.auth-pitch { max-width: 23ch; }
+.auth-pitch h2 { font-size: clamp(28px, 3.4vw, 40px); line-height: 1.15; margin: 0 0 15px; }
+.auth-pitch p { color: rgba(241, 233, 233, 0.72); font-size: 15px; margin: 0; }
+.auth-feats { list-style: none; padding: 0; margin: 32px 0 0; }
 .auth-feats li {
-  display: flex; align-items: center; gap: 10px;
-  font-size: 14px; margin-bottom: 11px;
-  color: color-mix(in srgb, var(--brand-4) 88%, transparent);
+  display: flex; align-items: center; gap: 11px;
+  font-size: 14px; margin-bottom: 13px;
+  color: rgba(241, 233, 233, 0.88);
 }
 .auth-tick {
-  width: 19px; height: 19px; border-radius: 50%; flex-shrink: 0;
+  width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0;
   background: var(--brand-3); color: var(--brand-1);
-  display: grid; place-items: center; font-size: 11px; font-weight: 800;
+  display: grid; place-items: center; font-size: 10px; font-weight: 800;
 }
 .auth-form-side { display: grid; place-items: center; padding: clamp(28px, 5vw, 56px); background: var(--bg); }
 .auth-card { width: 100%; max-width: 384px; }
@@ -516,12 +508,12 @@ h1, h2, h3, h4 { letter-spacing: -0.021em; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .skeleton {
-  background: linear-gradient(90deg, var(--surface-2) 25%, var(--border) 50%, var(--surface-2) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.4s infinite;
-  border-radius: var(--radius);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  animation: pulse 1.5s ease-in-out infinite;
 }
-@keyframes shimmer { to { background-position: -200% 0; } }
+@keyframes pulse { 50% { opacity: 0.55; } }
 .skeleton-card { height: 186px; }
 
 /* ---------------------------------------------------------- Responsive ---- */

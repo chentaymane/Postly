@@ -49,7 +49,7 @@ export default function LoginPage() {
   return (
     <div className="auth-shell">
       <aside className="auth-brand">
-        <PostlyLogo size={34} markId="postlyGradAuth" />
+        <PostlyLogo />
 
         <div className="auth-pitch">
           <h2>One idea in. Everywhere out.</h2>
