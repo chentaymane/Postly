@@ -486,6 +486,52 @@ h1, h2, h3, h4 { letter-spacing: -0.021em; }
 .auth-legal { margin-top: 22px; font-size: 12px; color: var(--text-dim); text-align: center; line-height: 1.6; }
 .auth-legal a { color: var(--accent); }
 
+/* -------------------------------------------------------------- Review ---- */
+
+.review-list { display: flex; flex-direction: column; gap: 20px; }
+.review-card {
+  display: grid; grid-template-columns: 250px 1fr; gap: 22px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 22px;
+}
+.review-img {
+  width: 100%; border-radius: var(--radius);
+  border: 1px solid var(--border); object-fit: cover;
+  background: var(--surface-2); align-self: start;
+}
+.review-body { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.review-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.platform-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: #fff; font-size: 12px; font-weight: 700;
+  padding: 5px 11px; border-radius: 999px; text-transform: capitalize;
+}
+.review-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
+.schedule-group { display: inline-flex; align-items: center; gap: 8px; }
+.schedule-group input[type="datetime-local"] {
+  background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 10px;
+  padding: 9px 11px; font-size: 13px; font-family: inherit;
+}
+@media (max-width: 640px) {
+  .review-card { grid-template-columns: 1fr; }
+  .review-img { max-width: 260px; }
+}
+
+/* ------------------------------------------------------------ Settings ---- */
+
+.section-title {
+  font-size: 16px; font-weight: 700; margin: 14px 0 0;
+  padding-top: 18px; border-top: 1px solid var(--border);
+}
+.form .section-title:first-of-type { border-top: none; padding-top: 0; margin-top: 0; }
+.times-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.times-row input[type="time"] {
+  background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 10px;
+  padding: 9px 11px; font-size: 14px; font-family: inherit;
+}
+
 /* --------------------------------------------------------------- Legal ---- */
 
 .legal { max-width: 720px; font-size: 15px; line-height: 1.75; }

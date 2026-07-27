@@ -80,6 +80,55 @@ CREATE INDEX IF NOT EXISTS idx_post_logs_user ON post_logs (user_id);
 -- ---------------------------------------------------------------------------
 
 ALTER TABLE social_connections
-    ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'direct';  -- direct | socialapi
+    ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'direct';  -- direct | socialapi | zernio
 ALTER TABLE social_connections
     ALTER COLUMN access_token DROP NOT NULL;
+
+-- ---------------------------------------------------------------------------
+-- Brand profile: the store/product context injected into every AI prompt,
+-- plus autopilot settings.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS brand_profiles (
+    user_id            BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    store_name         TEXT,
+    store_url          TEXT,
+    products           TEXT,      -- what you sell
+    audience           TEXT,      -- who buys it
+    benefits           TEXT,      -- why they buy it
+    default_tone       TEXT,
+    auto_enabled       BOOLEAN NOT NULL DEFAULT false,
+    auto_posts_per_day INT     NOT NULL DEFAULT 1,
+    auto_times         JSONB   NOT NULL DEFAULT '["10:00"]'::jsonb,  -- HH:MM, UTC
+    auto_platforms     JSONB   NOT NULL DEFAULT '[]'::jsonb,
+    updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ---------------------------------------------------------------------------
+-- Review queue: generated posts wait here as drafts until approved,
+-- then are published immediately or scheduled via the aggregators.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS queued_posts (
+    id                BIGSERIAL PRIMARY KEY,
+    user_id           BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    platform          TEXT NOT NULL,
+    status            TEXT NOT NULL DEFAULT 'draft',  -- draft | scheduled | published | failed
+    theme             TEXT,
+    tone              TEXT,
+    caption           TEXT,
+    hashtags          TEXT,
+    cta               TEXT,
+    pin_title         TEXT,
+    pin_description   TEXT,
+    image_url         TEXT,
+    destination_url   TEXT,
+    scheduled_at      TIMESTAMPTZ,
+    published_post_id TEXT,
+    error_message     TEXT,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_queued_posts_user   ON queued_posts (user_id, status);
+CREATE INDEX IF NOT EXISTS idx_queued_posts_status ON queued_posts (status, scheduled_at);

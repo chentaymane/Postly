@@ -14,27 +14,58 @@ import { createPinPost } from './zernio.js';
 // Prompts
 // ---------------------------------------------------------------------------
 
-export function buildPrompts({ theme, productName, description, tone, forPinterest }) {
+// Conversion-focused prompt builder. `brand` (optional) is the user's stored
+// store profile — injecting it is what turns generic captions into copy that
+// sells THEIR product to THEIR audience.
+export function buildPrompts({ theme, productName, description, tone, forPinterest, platform, brand }) {
   const subject = productName ? `${productName} — ${theme}` : theme;
 
   const pinterestKeys = forPinterest
-    ? ', "pin_title" (string, max 90 chars, keyword-rich and search-optimised), "pin_description" (string, max 480 chars, keyword-rich)'
+    ? ' Also include: "pin_title" (string, max 90 chars: a keyword-rich, search-optimised title buyers would type into Pinterest search), "pin_description" (string, max 480 chars: natural keyword-rich description ending with a reason to click through).'
     : '';
 
   const systemPrompt =
-    'You are an expert social media marketing copywriter. Respond ONLY with a valid JSON object with exactly these keys: ' +
-    '"caption" (string, 1-3 engaging sentences), "hashtags" (array of 5-10 short strings, no # symbol), ' +
-    `"cta" (string, short call to action)${pinterestKeys}. No markdown, no code fences, no extra keys.`;
+    'You are a direct-response social media copywriter who sells products for small online stores. ' +
+    'Your copy converts followers into buyers. Rules you always follow:\n' +
+    '1. HOOK FIRST — the opening line must stop the scroll: a sharp question, a surprising fact, or the buyer\'s pain/desire in their own words. Never start with the product name.\n' +
+    '2. SELL THE OUTCOME, not the item — what the buyer\'s life looks like after purchase (calm kids, proud gift-giver, cozy evening). Be specific and sensory, never generic.\n' +
+    '3. ONE clear benefit per post. Do not list features.\n' +
+    '4. CTA drives the purchase with gentle urgency and points at the link (e.g. "Grab yours — link in bio", "Download it today"). No fake scarcity.\n' +
+    '5. Hashtags: 6-10, mix of buyer-intent (what a purchaser searches) and niche community tags. No giant generic tags like #love.\n' +
+    '6. Sound like a real person recommending to a friend — zero corporate phrases ("elevate", "unleash", "discover the magic").\n' +
+    'Respond ONLY with a valid JSON object with exactly these keys: "caption" (string: hook line, blank line, then 1-3 short lines of body copy), ' +
+    '"hashtags" (array of 6-10 strings, no # symbol), "cta" (string, one short line).' +
+    pinterestKeys +
+    ' No markdown, no code fences, no extra keys.';
+
+  const brandLines = brand
+    ? [
+        brand.store_name ? `Store: ${brand.store_name}.` : '',
+        brand.products ? `We sell: ${brand.products}.` : '',
+        brand.audience ? `Target buyer: ${brand.audience}.` : '',
+        brand.benefits ? `Why customers buy: ${brand.benefits}.` : '',
+        brand.store_url ? `Store link (mention "link" in CTA, do not paste the URL): ${brand.store_url}.` : '',
+      ].filter(Boolean).join(' ')
+    : '';
 
   const userPrompt =
-    `Product/theme: ${subject}.` +
+    (brandLines ? brandLines + '\n' : '') +
+    `Post subject: ${subject}.` +
     (description ? ` Details: ${description}.` : '') +
-    ` Tone: ${tone}. Write promotional social media copy` +
-    (forPinterest ? ' AND Pinterest-optimised title/description.' : '.');
+    ` Tone: ${tone}.` +
+    ` Platform: ${platform || 'social media'}.` +
+    ' Write a post that makes the target buyer want to purchase now' +
+    (forPinterest ? ', plus the Pinterest search-optimised title and description.' : '.');
 
+  // Image: sell the feeling of using the product. A human element converts
+  // far better than a sterile product shot, and "no text" avoids the garbled
+  // letters image models produce.
+  const productForImage = brand?.products || subject;
   const imagePrompt =
-    `${subject}, professional product marketing photography, high quality, ${tone} mood, ` +
-    'soft studio lighting, vibrant colors, clean composition, promotional advertisement style';
+    `${subject}, ${productForImage} being enjoyed in real life, happy person using the product, ` +
+    `authentic lifestyle marketing photography, warm inviting ${tone} atmosphere, natural light, ` +
+    'shallow depth of field, rich colors, aspirational but believable scene, ' +
+    'absolutely no text, no words, no letters, no watermark';
 
   return { subject, systemPrompt, userPrompt, imagePrompt };
 }
@@ -298,7 +329,7 @@ export const publishers = {
 // Publishes through the SocialAPI.ai aggregator: upload the generated image,
 // then create the post against the connected account. Works for any platform
 // the aggregator supports, including ones we have no direct integration for.
-async function publishViaAggregator(conn, content, platform) {
+async function publishViaAggregator(conn, content, platform, scheduledAt) {
   const accountId = conn.extra?.socialapi_account_id || conn.account_id;
   if (!accountId) throw new Error('aggregator connection is missing its account id');
 
@@ -317,7 +348,7 @@ async function publishViaAggregator(conn, content, platform) {
     };
   }
 
-  const post = await createPost({ accountId, text, mediaIds: [mediaId], platformData });
+  const post = await createPost({ accountId, text, mediaIds: [mediaId], platformData, scheduledAt });
   const target = Array.isArray(post.targets) ? post.targets[0] : null;
   if (post.status === 'failed' || target?.status === 'failed') {
     throw new Error(target?.error || post.error || 'aggregator publish failed');
@@ -327,7 +358,7 @@ async function publishViaAggregator(conn, content, platform) {
 }
 
 // Publishes through Zernio (Pinterest). Media is attached by URL directly.
-async function publishViaZernio(conn, content, platform) {
+async function publishViaZernio(conn, content, platform, scheduledAt) {
   if (platform !== 'pinterest') {
     throw new Error(`Zernio publishing is only wired for Pinterest, got ${platform}`);
   }
@@ -340,7 +371,39 @@ async function publishViaZernio(conn, content, platform) {
     description: content.pinDescription,
     link: content.destinationUrl || undefined,
     imageUrl: content.imageUrl,
+    scheduledFor: scheduledAt || undefined,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Draft-based flow (review queue + scheduling).
+// ---------------------------------------------------------------------------
+
+// Generates copy + image for one platform WITHOUT publishing.
+export async function generateContent({ platform, input, brand }) {
+  const forPinterest = platform === 'pinterest';
+  const prompts = buildPrompts({ ...input, forPinterest, platform, brand });
+  const copy = await generateCopy(prompts, prompts.subject);
+  const img = await generateImage(prompts.imagePrompt, IMAGE_DIMS[platform]);
+  return { ...copy, imageUrl: img.imageUrl, subject: prompts.subject };
+}
+
+// Publishes previously generated content now, or schedules it (ISO datetime,
+// aggregator connections only — the aggregator does the timed delivery).
+export async function publishContent({ conn, platform, content, scheduledAt }) {
+  const provider = conn.provider || 'direct';
+  if (provider === 'socialapi') {
+    return publishViaAggregator(conn, content, platform, scheduledAt || undefined);
+  }
+  if (provider === 'zernio') {
+    return publishViaZernio(conn, content, platform, scheduledAt || undefined);
+  }
+  if (scheduledAt) {
+    throw new Error('scheduling is only supported for one-click (aggregator) connections');
+  }
+  const publish = publishers[platform];
+  if (!publish) throw new Error(`publishing to ${platform} is not implemented yet`);
+  return publish(conn, content);
 }
 
 // Per-platform image dimensions (Pinterest strongly prefers tall 2:3).

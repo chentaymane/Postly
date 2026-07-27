@@ -47,14 +47,25 @@ export default function CreatePage() {
     e.preventDefault();
     setSubmitting(true);
     setResults(null);
-    const res = await fetch('/api/publish', {
+    // Generates drafts into the review queue — nothing publishes yet.
+    const res = await fetch('/api/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...form, platforms: Array.from(selected) }),
     });
     if (res.status === 401) { router.push('/login'); return; }
     const json = await res.json();
-    setResults(json.results || [{ platform: 'error', ok: false, error: json.error || 'unknown error' }]);
+    const drafts = json.drafts || [];
+    const failures = drafts.filter((d) => !d.ok);
+    if (drafts.length > 0 && failures.length === 0) {
+      router.push('/review');
+      return;
+    }
+    setResults(
+      failures.length
+        ? failures.map((f) => ({ platform: f.platform, ok: false, error: f.error }))
+        : [{ platform: 'error', ok: false, error: json.error || 'generation failed' }]
+    );
     setSubmitting(false);
   }
 
@@ -135,7 +146,7 @@ export default function CreatePage() {
             </div>
 
             <button className="btn btn-accent btn-lg btn-block" disabled={!canSubmit}>
-              {submitting ? <><span className="spinner" /> Generating &amp; publishing…</> : 'Generate & Publish'}
+              {submitting ? <><span className="spinner" /> Generating…</> : 'Generate for review'}
             </button>
           </form>
         </div>

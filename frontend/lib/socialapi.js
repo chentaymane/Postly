@@ -73,15 +73,16 @@ export function listPinterestBoards(accountId) {
   return api(`/accounts/${accountId}/pinterest-boards`);
 }
 
-// Publishes an image post immediately. `platformData` carries per-platform
-// fields (e.g. pinterest board/title/link) keyed by SocialAPI platform name.
-export function createPost({ accountId, text, mediaIds, platformData }) {
+// Publishes an image post immediately, or schedules it when `scheduledAt`
+// (ISO/RFC3339) is given. `platformData` carries per-platform fields keyed by
+// SocialAPI platform name.
+export function createPost({ accountId, text, mediaIds, platformData, scheduledAt }) {
   return api('/posts', {
     method: 'POST',
     body: {
       text,
       ...(mediaIds?.length ? { media_ids: mediaIds } : {}),
-      publish_now: true,
+      ...(scheduledAt ? { scheduled_at: scheduledAt } : { publish_now: true }),
       targets: [
         {
           account_id: accountId,

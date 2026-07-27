@@ -65,13 +65,16 @@ export function disconnectAccount(accountId) {
   return api(`/accounts/${accountId}`, { method: 'DELETE' });
 }
 
-// Publishes a Pinterest pin immediately. Media is attached by URL directly.
-export async function createPinPost({ accountId, boardId, title, description, link, imageUrl }) {
+// Publishes a Pinterest pin immediately, or schedules it when `scheduledFor`
+// (ISO 8601, UTC) is given. Media is attached by URL directly.
+export async function createPinPost({ accountId, boardId, title, description, link, imageUrl, scheduledFor }) {
   const json = await api('/posts', {
     method: 'POST',
     body: {
       content: description,
-      publishNow: true,
+      ...(scheduledFor
+        ? { scheduledFor, timezone: 'UTC', publishNow: false }
+        : { publishNow: true }),
       mediaItems: [{ type: 'image', url: imageUrl }],
       platforms: [
         {

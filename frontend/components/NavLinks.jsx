@@ -4,8 +4,10 @@ import { usePathname } from 'next/navigation';
 
 const LINKS = [
   { href: '/', label: 'Connections' },
-  { href: '/create', label: 'Create Post' },
+  { href: '/create', label: 'Create' },
+  { href: '/review', label: 'Review' },
   { href: '/history', label: 'History' },
+  { href: '/settings', label: 'Settings' },
 ];
 
 export default function NavLinks() {
