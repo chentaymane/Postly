@@ -14,10 +14,13 @@ function DraftCard({ post, onChanged }) {
     caption: post.caption || '', hashtags: post.hashtags || '', cta: post.cta || '',
     pin_title: post.pin_title || '', pin_description: post.pin_description || '',
   });
-  const [when, setWhen] = useState('');
+  const [whenDate, setWhenDate] = useState('');
+  const [whenHour, setWhenHour] = useState('10');
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
   const isPinterest = post.platform === 'pinterest';
+  // Local date + a plain 0-23 hour, combined into one timestamp.
+  const when = whenDate ? `${whenDate}T${whenHour.padStart(2, '0')}:00` : '';
 
   async function saveSilently() {
     await fetch(`/api/queue/${post.id}`, {
@@ -101,9 +104,16 @@ function DraftCard({ post, onChanged }) {
             {busy === 'publish' ? <span className="spinner" /> : 'Publish now'}
           </button>
           <div className="schedule-group">
-            <label className="sr-only" htmlFor={`w-${post.id}`}>Schedule date and time</label>
-            <input id={`w-${post.id}`} type="datetime-local" value={when}
-                   onChange={(e) => setWhen(e.target.value)} />
+            <label className="sr-only" htmlFor={`wd-${post.id}`}>Schedule date</label>
+            <input id={`wd-${post.id}`} type="date" value={whenDate}
+                   onChange={(e) => setWhenDate(e.target.value)} />
+            <label className="sr-only" htmlFor={`wh-${post.id}`}>Schedule hour (0-23)</label>
+            <select id={`wh-${post.id}`} value={whenHour}
+                    onChange={(e) => setWhenHour(e.target.value)}>
+              {Array.from({ length: 24 }, (_, h) => (
+                <option key={h} value={String(h)}>{String(h).padStart(2, '0')}:00</option>
+              ))}
+            </select>
             <button className="btn btn-outline" disabled={!!busy || !when} onClick={() => publish(true)}>
               {busy === 'schedule' ? <span className="spinner" /> : 'Schedule'}
             </button>
@@ -130,7 +140,7 @@ function ScheduledRow({ post, onChanged }) {
         /* eslint-disable-next-line @next/next/no-img-element */
         <img className="sched-thumb" src={post.image_url} alt="" />
       )}
-      <span className="sched-time">{t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+      <span className="sched-time">{t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
       <span className="platform-chip" style={{ background: PLATFORM_COLORS[post.platform] }}>
         <PlatformIcon platform={post.platform} size={13} /> {post.platform}
       </span>

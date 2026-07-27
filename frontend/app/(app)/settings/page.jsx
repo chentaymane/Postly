@@ -126,13 +126,18 @@ export default function SettingsPage() {
               </select>
             </div>
             <div className="field">
-              <label>Posting times (UTC)</label>
+              <label>Posting hours (0–23, UTC)</label>
               <div className="times-row">
                 {b.auto_times.slice(0, b.auto_posts_per_day).map((t, i) => (
-                  <input key={i} type="time" value={t} onChange={(e) => setTime(i, e.target.value)} />
+                  <select key={i} value={t} onChange={(e) => setTime(i, e.target.value)}>
+                    {Array.from({ length: 24 }, (_, h) => {
+                      const v = `${String(h).padStart(2, '0')}:00`;
+                      return <option key={v} value={v}>{String(h).padStart(2, '0')}:00</option>;
+                    })}
+                  </select>
                 ))}
               </div>
-              <p className="hint">Posts are generated once a day and scheduled at these times.</p>
+              <p className="hint">Posts are generated once a day and scheduled at these hours.</p>
             </div>
             <div className="field">
               <label>Platforms</label>
