@@ -31,8 +31,10 @@ export async function POST(request) {
   const { rows: brandRows } = await query('SELECT * FROM brand_profiles WHERE user_id = $1', [userId]);
   const brand = brandRows[0] || null;
 
+  const postType = ['promo', 'tips', 'engage'].includes(body.postType) ? body.postType : 'promo';
   const input = {
     theme,
+    postType,
     productName: String(body.productName || '').trim(),
     description: String(body.description || '').trim(),
     tone: String(body.tone || brand?.default_tone || 'friendly and engaging').trim(),

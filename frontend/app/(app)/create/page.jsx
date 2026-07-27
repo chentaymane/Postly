@@ -21,6 +21,7 @@ export default function CreatePage() {
   const [form, setForm] = useState({
     theme: '', productName: '', description: '', tone: TONES[0], destinationUrl: '',
   });
+  const [postType, setPostType] = useState('promo');
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState(null);
   const [templates, setTemplates] = useState([]);
@@ -88,7 +89,7 @@ export default function CreatePage() {
     const res = await fetch('/api/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, platforms: Array.from(selected) }),
+      body: JSON.stringify({ ...form, postType, platforms: Array.from(selected) }),
     });
     if (res.status === 401) { router.push('/login'); return; }
     const json = await res.json();
@@ -135,6 +136,28 @@ export default function CreatePage() {
           )}
 
           <form className="form" onSubmit={submit}>
+            <div className="field">
+              <label>What kind of post?</label>
+              <div className="checks">
+                {[
+                  ['promo', 'Promote product'],
+                  ['tips', 'Tips & advice'],
+                  ['engage', 'Fun & engage'],
+                ].map(([val, label]) => (
+                  <label key={val} className={`check${postType === val ? ' selected' : ''}`}>
+                    <input type="radio" name="postType" value={val}
+                           checked={postType === val} onChange={() => setPostType(val)} />
+                    {label}
+                  </label>
+                ))}
+              </div>
+              <p className="hint">
+                {postType === 'promo' && 'Copy written to sell — outcome-focused with a buy CTA.'}
+                {postType === 'tips' && 'A genuinely useful advice post (e.g. baby & parenting tips) that builds trust.'}
+                {postType === 'engage' && 'Relatable and fun — written to get comments and shares.'}
+              </p>
+            </div>
+
             <div className="field">
               <label htmlFor="theme">Theme or product *</label>
               <input id="theme" required value={form.theme}

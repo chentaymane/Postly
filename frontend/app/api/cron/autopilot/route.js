@@ -30,7 +30,8 @@ export async function GET(request) {
       .slice(0, Math.max(1, Math.min(brand.auto_posts_per_day || 1, 5)));
     if (platforms.length === 0) continue;
 
-    // Angle rotation so daily posts don't repeat themselves.
+    // Angle + post-type rotation so daily posts don't repeat themselves and
+    // the feed mixes selling with genuinely useful/relatable content.
     const angles = [
       'a specific benefit for the buyer',
       'a common problem the product solves',
@@ -38,6 +39,7 @@ export async function GET(request) {
       'a quick tip involving the product',
       'why now is a great moment to try it',
     ];
+    const postTypes = ['promo', 'tips', 'engage'];
 
     for (const [i, time] of times.entries()) {
       if (generations >= MAX_GENERATIONS) break;
@@ -68,6 +70,7 @@ export async function GET(request) {
         try {
           const input = {
             theme: `${brand.products || brand.store_name || 'our products'} — ${angles[(i + at.getUTCDate()) % angles.length]}`,
+            postType: postTypes[(i + at.getUTCDate()) % postTypes.length],
             productName: brand.store_name || '',
             description: brand.benefits || '',
             tone: brand.default_tone || 'friendly and engaging',

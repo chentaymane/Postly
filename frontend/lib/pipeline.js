@@ -17,24 +17,41 @@ import { createPinPost } from './zernio.js';
 // Conversion-focused prompt builder. `brand` (optional) is the user's stored
 // store profile — injecting it is what turns generic captions into copy that
 // sells THEIR product to THEIR audience.
-export function buildPrompts({ theme, productName, description, tone, forPinterest, platform, brand }) {
+// postType: 'promo' (sell the product) | 'tips' (advice/value post that builds
+// trust) | 'engage' (fun, relatable, conversation-starting).
+export function buildPrompts({ theme, productName, description, tone, forPinterest, platform, brand, postType = 'promo' }) {
   const subject = productName ? `${productName} — ${theme}` : theme;
 
   const pinterestKeys = forPinterest
     ? ' Also include: "pin_title" (string, max 90 chars: a keyword-rich, search-optimised title buyers would type into Pinterest search), "pin_description" (string, max 480 chars: natural keyword-rich description ending with a reason to click through).'
     : '';
 
+  const typeRules = {
+    promo:
+      '1. HOOK FIRST — the opening line must stop the scroll: a sharp question, a surprising fact, or the buyer\'s pain/desire in their own words. Never start with the product name.\n' +
+      '2. SELL THE OUTCOME, not the item — what the buyer\'s life looks like after purchase (calm kids, proud gift-giver, cozy evening). Be specific and sensory, never generic.\n' +
+      '3. ONE clear benefit per post. Do not list features.\n' +
+      '4. CTA drives the purchase with gentle urgency and points at the link (e.g. "Grab yours — link in bio", "Download it today"). No fake scarcity.\n',
+    tips:
+      '1. This is a VALUE post, not an ad: give genuinely useful, specific advice the audience can use today (e.g. parenting tips, activity ideas, how-tos related to the niche).\n' +
+      '2. HOOK FIRST — open with the problem or a surprising fact, then give 3-4 short, concrete, numbered tips. Each tip on its own line, specific enough to act on.\n' +
+      '3. Mention the product at most once, softly, as one of the tips or in the CTA — the value must stand on its own.\n' +
+      '4. CTA is soft: save this post, follow for more, or check the link for a helpful resource.\n',
+    engage:
+      '1. This is an ENGAGEMENT post: relatable, warm, lightly funny — a moment the audience recognises from their own life.\n' +
+      '2. HOOK FIRST — a "tell me you\'re a [audience] without telling me" energy, a mini-story, or a this-or-that question.\n' +
+      '3. End with a question that invites comments.\n' +
+      '4. CTA invites interaction (comment/share/tag someone), not purchase.\n',
+  };
+
   const systemPrompt =
-    'You are a direct-response social media copywriter who sells products for small online stores. ' +
-    'Your copy converts followers into buyers. Rules you always follow:\n' +
-    '1. HOOK FIRST — the opening line must stop the scroll: a sharp question, a surprising fact, or the buyer\'s pain/desire in their own words. Never start with the product name.\n' +
-    '2. SELL THE OUTCOME, not the item — what the buyer\'s life looks like after purchase (calm kids, proud gift-giver, cozy evening). Be specific and sensory, never generic.\n' +
-    '3. ONE clear benefit per post. Do not list features.\n' +
-    '4. CTA drives the purchase with gentle urgency and points at the link (e.g. "Grab yours — link in bio", "Download it today"). No fake scarcity.\n' +
-    '5. Hashtags: 6-10, mix of buyer-intent (what a purchaser searches) and niche community tags. No giant generic tags like #love.\n' +
-    '6. Sound like a real person recommending to a friend — zero corporate phrases ("elevate", "unleash", "discover the magic").\n' +
-    'Respond ONLY with a valid JSON object with exactly these keys: "caption" (string: hook line, blank line, then 1-3 short lines of body copy), ' +
-    '"hashtags" (array of 6-10 strings, no # symbol), "cta" (string, one short line).' +
+    'You are a social media content strategist and copywriter for small online stores. Rules you always follow:\n' +
+    (typeRules[postType] || typeRules.promo) +
+    '5. Hashtags: 6-10, mix of intent-based and niche community tags. No giant generic tags like #love.\n' +
+    '6. Sound like a real person talking to a friend — zero corporate phrases ("elevate", "unleash", "discover the magic").\n' +
+    '7. IMAGE: also write "image_prompt" — one vivid sentence describing a photograph that would stop the scroll for this exact post. Describe a REAL-LIFE SCENE with a person and emotion (e.g. "a smiling 5-year-old girl colouring a lion picture with crayons at a sunny kitchen table, cosy morning light"). Concrete subject + action + setting + light. Never mention brands, logos, text, or words appearing in the image.\n' +
+    'Respond ONLY with a valid JSON object with exactly these keys: "caption" (string: hook line, blank line, then the body per the rules above), ' +
+    '"hashtags" (array of 6-10 strings, no # symbol), "cta" (string, one short line), "image_prompt" (string, one sentence).' +
     pinterestKeys +
     ' No markdown, no code fences, no extra keys.';
 
@@ -48,26 +65,37 @@ export function buildPrompts({ theme, productName, description, tone, forPintere
       ].filter(Boolean).join(' ')
     : '';
 
+  const goal = {
+    promo: 'Write a post that makes the target buyer want to purchase now',
+    tips: 'Write a genuinely helpful tips/advice post for this audience',
+    engage: 'Write a relatable engagement post this audience will comment on',
+  }[postType] || 'Write a post for this audience';
+
   const userPrompt =
     (brandLines ? brandLines + '\n' : '') +
     `Post subject: ${subject}.` +
     (description ? ` Details: ${description}.` : '') +
     ` Tone: ${tone}.` +
     ` Platform: ${platform || 'social media'}.` +
-    ' Write a post that makes the target buyer want to purchase now' +
+    ` ${goal}` +
     (forPinterest ? ', plus the Pinterest search-optimised title and description.' : '.');
 
-  // Image: sell the feeling of using the product. A human element converts
-  // far better than a sterile product shot, and "no text" avoids the garbled
-  // letters image models produce.
+  // Fallback scene if the model omits image_prompt — the real scene normally
+  // comes from the model itself (see finishImagePrompt).
   const productForImage = brand?.products || subject;
-  const imagePrompt =
-    `${subject}, ${productForImage} being enjoyed in real life, happy person using the product, ` +
-    `authentic lifestyle marketing photography, warm inviting ${tone} atmosphere, natural light, ` +
-    'shallow depth of field, rich colors, aspirational but believable scene, ' +
-    'absolutely no text, no words, no letters, no watermark';
+  const imagePrompt = `happy person enjoying ${productForImage} in a cosy real-life moment, ${subject}`;
 
   return { subject, systemPrompt, userPrompt, imagePrompt };
+}
+
+// Wraps the model-written scene with a consistent photographic treatment.
+// The style suffix is fixed so the feed looks coherent; the scene varies.
+export function finishImagePrompt(scene, tone = 'warm') {
+  return (
+    `${scene}, authentic candid lifestyle photography, ${tone} mood, natural light, ` +
+    'shallow depth of field, rich warm colors, shot on 50mm lens, aspirational but believable, ' +
+    'absolutely no text, no words, no letters, no logos, no watermark'
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -147,6 +175,7 @@ function parseCopy(raw, fallbackSubject) {
     cta,
     pinTitle: String(parsed.pin_title || fallbackSubject || '').trim().slice(0, 100),
     pinDescription: String(parsed.pin_description || caption).trim().slice(0, 800),
+    imageScene: String(parsed.image_prompt || '').trim().slice(0, 500) || null,
     fullMessage: [caption, cta, hashtags].filter(Boolean).join('\n\n'),
   };
 }
@@ -382,12 +411,15 @@ async function publishViaZernio(conn, content, platform, scheduledAt) {
 // Draft-based flow (review queue + scheduling).
 // ---------------------------------------------------------------------------
 
-// Generates copy + image for one platform WITHOUT publishing.
+// Generates copy + image for one platform WITHOUT publishing. The image scene
+// is written by the copy model for THIS post (a real moment with a person),
+// then wrapped in a consistent photographic style.
 export async function generateContent({ platform, input, brand }) {
   const forPinterest = platform === 'pinterest';
   const prompts = buildPrompts({ ...input, forPinterest, platform, brand });
   const copy = await generateCopy(prompts, prompts.subject);
-  const img = await generateImage(prompts.imagePrompt, IMAGE_DIMS[platform]);
+  const scene = copy.imageScene || prompts.imagePrompt;
+  const img = await generateImage(finishImagePrompt(scene, input.tone), IMAGE_DIMS[platform]);
   return { ...copy, imageUrl: img.imageUrl, subject: prompts.subject };
 }
 
