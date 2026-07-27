@@ -553,6 +553,12 @@ h1, h2, h3, h4 { letter-spacing: -0.021em; }
   background: var(--surface-2); align-self: start;
 }
 .review-body { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.review-media { display: flex; flex-direction: column; gap: 8px; align-self: start; }
+.slide-strip { display: flex; gap: 6px; }
+.slide-thumb {
+  width: 56px; height: 56px; object-fit: cover; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--surface-2);
+}
 .review-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .platform-chip {
   display: inline-flex; align-items: center; gap: 6px;

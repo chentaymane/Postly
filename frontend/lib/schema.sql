@@ -151,3 +151,7 @@ CREATE TABLE IF NOT EXISTS post_templates (
 );
 
 CREATE INDEX IF NOT EXISTS idx_post_templates_user ON post_templates (user_id);
+
+-- Carousel support: all slide URLs (image_url stays = first slide).
+ALTER TABLE queued_posts
+    ADD COLUMN IF NOT EXISTS image_urls JSONB;

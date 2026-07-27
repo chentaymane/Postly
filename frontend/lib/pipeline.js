@@ -19,7 +19,7 @@ import { createPinPost } from './zernio.js';
 // sells THEIR product to THEIR audience.
 // postType: 'promo' (sell the product) | 'tips' (advice/value post that builds
 // trust) | 'engage' (fun, relatable, conversation-starting).
-export function buildPrompts({ theme, productName, description, tone, forPinterest, platform, brand, postType = 'promo' }) {
+export function buildPrompts({ theme, productName, description, tone, forPinterest, platform, brand, postType = 'promo', format = 'single' }) {
   const subject = productName ? `${productName} — ${theme}` : theme;
 
   const pinterestKeys = forPinterest
@@ -49,9 +49,16 @@ export function buildPrompts({ theme, productName, description, tone, forPintere
     (typeRules[postType] || typeRules.promo) +
     '5. Hashtags: 6-10, mix of intent-based and niche community tags. No giant generic tags like #love.\n' +
     '6. Sound like a real person talking to a friend — zero corporate phrases ("elevate", "unleash", "discover the magic").\n' +
-    '7. IMAGE: also write "image_prompt" — one vivid sentence describing a photograph that would stop the scroll for this exact post. Describe a REAL-LIFE SCENE with a person and emotion (e.g. "a smiling 5-year-old girl colouring a lion picture with crayons at a sunny kitchen table, cosy morning light"). Concrete subject + action + setting + light. Never mention brands, logos, text, or words appearing in the image.\n' +
-    'Respond ONLY with a valid JSON object with exactly these keys: "caption" (string: hook line, blank line, then the body per the rules above), ' +
-    '"hashtags" (array of 6-10 strings, no # symbol), "cta" (string, one short line), "image_prompt" (string, one sentence).' +
+    (format === 'carousel'
+      ? '7. IMAGES: write "image_prompts" — an array of exactly 3 or 4 one-sentence photo scene descriptions that tell ONE continuous story in order. ' +
+        'For a promo post: first slide shows the relatable problem (e.g. a bored child slumped on the sofa staring at a phone), middle slide(s) show the turning point with the product (the same child colouring, absorbed and calm), last slide shows the proud payoff (the same child grinning and holding up a finished colourful page). ' +
+        'For a tips post: one scene illustrating each tip, in the same order as the tips. ' +
+        'CRITICAL FOR CONSISTENCY: invent ONE main character and repeat the exact same physical description word-for-word in every scene (e.g. "a 5-year-old girl with curly brown hair in a yellow sweater"), and keep the same home setting. Never mention brands, logos, or any text appearing in the images.\n' +
+        'Respond ONLY with a valid JSON object with exactly these keys: "caption" (string: hook line, blank line, then the body per the rules above), ' +
+        '"hashtags" (array of 6-10 strings, no # symbol), "cta" (string, one short line), "image_prompts" (array of 3-4 strings).'
+      : '7. IMAGE: also write "image_prompt" — one vivid sentence describing a photograph that would stop the scroll for this exact post. Describe a REAL-LIFE SCENE with a person and emotion (e.g. "a smiling 5-year-old girl colouring a lion picture with crayons at a sunny kitchen table, cosy morning light"). Concrete subject + action + setting + light. Never mention brands, logos, text, or words appearing in the image.\n' +
+        'Respond ONLY with a valid JSON object with exactly these keys: "caption" (string: hook line, blank line, then the body per the rules above), ' +
+        '"hashtags" (array of 6-10 strings, no # symbol), "cta" (string, one short line), "image_prompt" (string, one sentence).') +
     pinterestKeys +
     ' No markdown, no code fences, no extra keys.';
 
@@ -176,6 +183,9 @@ function parseCopy(raw, fallbackSubject) {
     pinTitle: String(parsed.pin_title || fallbackSubject || '').trim().slice(0, 100),
     pinDescription: String(parsed.pin_description || caption).trim().slice(0, 800),
     imageScene: String(parsed.image_prompt || '').trim().slice(0, 500) || null,
+    imageScenes: Array.isArray(parsed.image_prompts)
+      ? parsed.image_prompts.map((s) => String(s).trim().slice(0, 500)).filter(Boolean).slice(0, 4)
+      : null,
     fullMessage: [caption, cta, hashtags].filter(Boolean).join('\n\n'),
   };
 }
@@ -362,7 +372,9 @@ async function publishViaAggregator(conn, content, platform, scheduledAt) {
   const accountId = conn.extra?.socialapi_account_id || conn.account_id;
   if (!accountId) throw new Error('aggregator connection is missing its account id');
 
-  const mediaId = await uploadMediaFromUrl(content.imageUrl);
+  // Multi-image posts (story carousels) upload every slide.
+  const urls = (content.imageUrls?.length ? content.imageUrls : [content.imageUrl]).filter(Boolean);
+  const mediaIds = await Promise.all(urls.map((u) => uploadMediaFromUrl(u)));
 
   let text = content.fullMessage;
   let platformData;
@@ -376,11 +388,11 @@ async function publishViaAggregator(conn, content, platform, scheduledAt) {
       },
     };
   } else if (platform === 'instagram') {
-    // Instagram requires an explicit content type; we publish feed images.
-    platformData = { instagram: { content_type: 'feed' } };
+    // Instagram requires an explicit content type.
+    platformData = { instagram: { content_type: mediaIds.length > 1 ? 'carousel' : 'feed' } };
   }
 
-  const post = await createPost({ accountId, text, mediaIds: [mediaId], platformData, scheduledAt });
+  const post = await createPost({ accountId, text, mediaIds, platformData, scheduledAt });
   const target = Array.isArray(post.targets) ? post.targets[0] : null;
   if (post.status === 'failed' || target?.status === 'failed') {
     throw new Error(target?.error || post.error || 'aggregator publish failed');
@@ -418,9 +430,21 @@ export async function generateContent({ platform, input, brand }) {
   const forPinterest = platform === 'pinterest';
   const prompts = buildPrompts({ ...input, forPinterest, platform, brand });
   const copy = await generateCopy(prompts, prompts.subject);
-  const scene = copy.imageScene || prompts.imagePrompt;
+
+  // Carousel: one image per story scene, generated in parallel.
+  if (input.format === 'carousel' && copy.imageScenes?.length >= 2) {
+    const imgs = await Promise.all(
+      copy.imageScenes.map((scene) =>
+        generateImage(finishImagePrompt(scene, input.tone), IMAGE_DIMS[platform])
+      )
+    );
+    const imageUrls = imgs.map((i) => i.imageUrl);
+    return { ...copy, imageUrl: imageUrls[0], imageUrls, subject: prompts.subject };
+  }
+
+  const scene = copy.imageScene || copy.imageScenes?.[0] || prompts.imagePrompt;
   const img = await generateImage(finishImagePrompt(scene, input.tone), IMAGE_DIMS[platform]);
-  return { ...copy, imageUrl: img.imageUrl, subject: prompts.subject };
+  return { ...copy, imageUrl: img.imageUrl, imageUrls: [img.imageUrl], subject: prompts.subject };
 }
 
 // Publishes previously generated content now, or schedules it (ISO datetime,

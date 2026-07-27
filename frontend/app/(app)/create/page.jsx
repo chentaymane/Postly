@@ -22,6 +22,7 @@ export default function CreatePage() {
     theme: '', productName: '', description: '', tone: TONES[0], destinationUrl: '',
   });
   const [postType, setPostType] = useState('promo');
+  const [format, setFormat] = useState('single');
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState(null);
   const [templates, setTemplates] = useState([]);
@@ -89,7 +90,7 @@ export default function CreatePage() {
     const res = await fetch('/api/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, postType, platforms: Array.from(selected) }),
+      body: JSON.stringify({ ...form, postType, format, platforms: Array.from(selected) }),
     });
     if (res.status === 401) { router.push('/login'); return; }
     const json = await res.json();
@@ -156,6 +157,29 @@ export default function CreatePage() {
                 {postType === 'tips' && 'A genuinely useful advice post (e.g. baby & parenting tips) that builds trust.'}
                 {postType === 'engage' && 'Relatable and fun — written to get comments and shares.'}
               </p>
+            </div>
+
+            <div className="field">
+              <label>Images</label>
+              <div className="checks">
+                <label className={`check${format === 'single' ? ' selected' : ''}`}>
+                  <input type="radio" name="format" value="single"
+                         checked={format === 'single'} onChange={() => setFormat('single')} />
+                  Single image
+                </label>
+                <label className={`check${format === 'carousel' ? ' selected' : ''}`}>
+                  <input type="radio" name="format" value="carousel"
+                         checked={format === 'carousel'} onChange={() => setFormat('carousel')} />
+                  Story carousel (3–4 slides)
+                </label>
+              </div>
+              {format === 'carousel' && (
+                <p className="hint">
+                  The AI tells a story across slides — e.g. bored kid on a phone → discovers colouring →
+                  proudly shows the finished page. Publishes as a swipeable Instagram carousel
+                  (Pinterest uses the first slide).
+                </p>
+              )}
             </div>
 
             <div className="field">

@@ -50,15 +50,28 @@ function DraftCard({ post, onChanged }) {
 
   return (
     <div className="review-card">
-      {post.image_url && (
-        /* eslint-disable-next-line @next/next/no-img-element */
-        <img className="review-img" src={post.image_url} alt="Generated post image" />
-      )}
+      <div className="review-media">
+        {post.image_url && (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img className="review-img" src={post.image_url} alt="Generated post image" />
+        )}
+        {Array.isArray(post.image_urls) && post.image_urls.length > 1 && (
+          <div className="slide-strip">
+            {post.image_urls.map((u, i) => (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img key={i} className="slide-thumb" src={u} alt={`Slide ${i + 1}`} />
+            ))}
+          </div>
+        )}
+      </div>
       <div className="review-body">
         <div className="review-head">
           <span className="platform-chip" style={{ background: PLATFORM_COLORS[post.platform] }}>
             <PlatformIcon platform={post.platform} size={13} /> {post.platform}
           </span>
+          {Array.isArray(post.image_urls) && post.image_urls.length > 1 && (
+            <span className="pill soon">{post.image_urls.length} slides</span>
+          )}
           {post.status === 'failed' ? (
             <span className="pill disconnected"><span className="dot" />Failed</span>
           ) : (

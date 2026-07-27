@@ -32,9 +32,11 @@ export async function POST(request) {
   const brand = brandRows[0] || null;
 
   const postType = ['promo', 'tips', 'engage'].includes(body.postType) ? body.postType : 'promo';
+  const format = body.format === 'carousel' ? 'carousel' : 'single';
   const input = {
     theme,
     postType,
+    format,
     productName: String(body.productName || '').trim(),
     description: String(body.description || '').trim(),
     tone: String(body.tone || brand?.default_tone || 'friendly and engaging').trim(),
@@ -48,12 +50,14 @@ export async function POST(request) {
         const { rows } = await query(
           `INSERT INTO queued_posts
              (user_id, platform, status, theme, tone, caption, hashtags, cta,
-              pin_title, pin_description, image_url, destination_url)
-           VALUES ($1,$2,'draft',$3,$4,$5,$6,$7,$8,$9,$10,$11)
+              pin_title, pin_description, image_url, image_urls, destination_url)
+           VALUES ($1,$2,'draft',$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12)
            RETURNING *`,
           [
             userId, platform, input.theme, input.tone, c.caption, c.hashtags, c.cta,
-            c.pinTitle, c.pinDescription, c.imageUrl, input.destinationUrl || null,
+            c.pinTitle, c.pinDescription, c.imageUrl,
+            JSON.stringify(c.imageUrls || [c.imageUrl]),
+            input.destinationUrl || null,
           ]
         );
         return { ok: true, draft: rows[0] };

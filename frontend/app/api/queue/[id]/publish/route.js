@@ -52,6 +52,7 @@ export async function POST(request, { params }) {
     pinTitle: post.pin_title,
     pinDescription: post.pin_description,
     imageUrl: post.image_url,
+    imageUrls: Array.isArray(post.image_urls) ? post.image_urls : null,
     destinationUrl: post.destination_url || '',
     fullMessage: [post.caption, post.cta, post.hashtags].filter(Boolean).join('\n\n'),
   };
