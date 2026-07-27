@@ -43,7 +43,12 @@ async function api(path, { method = 'GET', body } = {}) {
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const msg = json?.error?.message || json?.message || `SocialAPI HTTP ${res.status}`;
+    let msg = json?.error?.message || json?.message || `SocialAPI HTTP ${res.status}`;
+    // Validation failures carry the actual issues in a list — surface them.
+    const issues = json?.errors || json?.error?.errors || json?.details;
+    if (Array.isArray(issues) && issues.length) {
+      msg += ': ' + issues.map((i) => i.message || JSON.stringify(i)).join('; ');
+    }
     throw new Error(msg);
   }
   return json;
@@ -83,18 +88,20 @@ export function createPost({ accountId, text, mediaIds, platformData, scheduledA
       text,
       ...(mediaIds?.length ? { media_ids: mediaIds } : {}),
       ...(scheduledAt ? { scheduled_at: scheduledAt } : { publish_now: true }),
-      targets: [
-        {
-          account_id: accountId,
-          ...(platformData ? { platform_data: platformData } : {}),
-        },
-      ],
+      // platform_data lives at the top level of the body (not inside targets).
+      ...(platformData ? { platform_data: platformData } : {}),
+      targets: [{ account_id: accountId }],
     },
   });
 }
 
 export function getPost(postId) {
   return api(`/posts/${postId}`);
+}
+
+// Cancels a scheduled post (or deletes a draft) on SocialAPI.
+export function deletePost(postId) {
+  return api(`/posts/${postId}`, { method: 'DELETE' });
 }
 
 // Media upload. External URLs in media_ids are silently ignored by SocialAPI,

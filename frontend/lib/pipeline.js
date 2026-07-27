@@ -346,6 +346,9 @@ async function publishViaAggregator(conn, content, platform, scheduledAt) {
         ...(content.destinationUrl ? { link: content.destinationUrl } : {}),
       },
     };
+  } else if (platform === 'instagram') {
+    // Instagram requires an explicit content type; we publish feed images.
+    platformData = { instagram: { content_type: 'feed' } };
   }
 
   const post = await createPost({ accountId, text, mediaIds: [mediaId], platformData, scheduledAt });

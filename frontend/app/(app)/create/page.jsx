@@ -23,6 +23,9 @@ export default function CreatePage() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState(null);
+  const [templates, setTemplates] = useState([]);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [templateSaved, setTemplateSaved] = useState(false);
 
   useEffect(() => {
     fetch('/api/connections', { cache: 'no-store' })
@@ -34,7 +37,41 @@ export default function CreatePage() {
         setConnected(conn);
         setSelected(conn);
       });
+    fetch('/api/templates', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setTemplates(d.templates || []));
   }, []);
+
+  function loadTemplate(id) {
+    const t = templates.find((x) => String(x.id) === String(id));
+    if (!t) return;
+    setForm({
+      theme: t.theme || '',
+      productName: t.product_name || '',
+      description: t.description || '',
+      tone: t.tone || TONES[0],
+      destinationUrl: t.destination_url || '',
+    });
+    const tplPlatforms = Array.isArray(t.platforms) ? t.platforms : [];
+    if (tplPlatforms.length) setSelected(new Set(tplPlatforms.filter((p) => connected.has(p))));
+  }
+
+  async function saveTemplate() {
+    const name = prompt('Template name:', form.productName || form.theme.slice(0, 40));
+    if (!name) return;
+    setSavingTemplate(true);
+    const res = await fetch('/api/templates', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, ...form, platforms: Array.from(selected) }),
+    });
+    if (res.ok) {
+      const { template } = await res.json();
+      setTemplates((ts) => [template, ...ts]);
+      setTemplateSaved(true);
+      setTimeout(() => setTemplateSaved(false), 2500);
+    }
+    setSavingTemplate(false);
+  }
 
   function toggle(key) {
     const next = new Set(selected);
@@ -84,6 +121,19 @@ export default function CreatePage() {
         {/* ---------------- form ---------------- */}
         <div className="panel">
           <p className="panel-title">Post details</p>
+
+          {templates.length > 0 && (
+            <div className="field" style={{ marginBottom: 18 }}>
+              <label htmlFor="template">Start from a saved template</label>
+              <div className="template-row">
+                <select id="template" value="" onChange={(e) => loadTemplate(e.target.value)}>
+                  <option value="">Choose a template…</option>
+                  {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </div>
+            </div>
+          )}
+
           <form className="form" onSubmit={submit}>
             <div className="field">
               <label htmlFor="theme">Theme or product *</label>
@@ -147,6 +197,11 @@ export default function CreatePage() {
 
             <button className="btn btn-accent btn-lg btn-block" disabled={!canSubmit}>
               {submitting ? <><span className="spinner" /> Generating…</> : 'Generate for review'}
+            </button>
+
+            <button type="button" className="btn btn-outline btn-block" disabled={!form.theme.trim() || savingTemplate}
+                    onClick={saveTemplate}>
+              {savingTemplate ? <span className="spinner" /> : templateSaved ? 'Saved ✓' : 'Save as template'}
             </button>
           </form>
         </div>

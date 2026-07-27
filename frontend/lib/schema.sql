@@ -132,3 +132,22 @@ CREATE TABLE IF NOT EXISTS queued_posts (
 
 CREATE INDEX IF NOT EXISTS idx_queued_posts_user   ON queued_posts (user_id, status);
 CREATE INDEX IF NOT EXISTS idx_queued_posts_status ON queued_posts (status, scheduled_at);
+
+-- ---------------------------------------------------------------------------
+-- Post templates: saved form setups the user can reuse on the Create page.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS post_templates (
+    id              BIGSERIAL PRIMARY KEY,
+    user_id         BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name            TEXT NOT NULL,
+    theme           TEXT,
+    product_name    TEXT,
+    description     TEXT,
+    tone            TEXT,
+    destination_url TEXT,
+    platforms       JSONB NOT NULL DEFAULT '[]'::jsonb,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_post_templates_user ON post_templates (user_id);

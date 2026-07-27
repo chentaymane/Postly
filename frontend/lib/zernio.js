@@ -65,6 +65,11 @@ export function disconnectAccount(accountId) {
   return api(`/accounts/${accountId}`, { method: 'DELETE' });
 }
 
+// Cancels a scheduled post on Zernio.
+export function deletePost(postId) {
+  return api(`/posts/${postId}`, { method: 'DELETE' });
+}
+
 // Publishes a Pinterest pin immediately, or schedules it when `scheduledFor`
 // (ISO 8601, UTC) is given. Media is attached by URL directly.
 export async function createPinPost({ accountId, boardId, title, description, link, imageUrl, scheduledFor }) {
