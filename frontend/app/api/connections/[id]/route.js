@@ -11,21 +11,26 @@ export async function DELETE(request, { params }) {
   // user_id in the predicate prevents deleting another user's connection.
   const res = await query(
     `DELETE FROM social_connections WHERE id = $1 AND user_id = $2
-     RETURNING provider, extra->>'socialapi_account_id' AS sapi_id`,
+     RETURNING provider,
+               extra->>'socialapi_account_id' AS sapi_id,
+               extra->>'zernio_account_id' AS zernio_id`,
     [params.id, userId]
   );
   if (res.rowCount === 0) {
     return NextResponse.json({ error: 'connection not found' }, { status: 404 });
   }
 
-  // Aggregator connections: also revoke on SocialAPI so the slot frees up.
+  // Aggregator connections: also revoke upstream so the account slot frees up.
   const row = res.rows[0];
-  if (row.provider === 'socialapi' && row.sapi_id) {
-    try {
+  try {
+    if (row.provider === 'socialapi' && row.sapi_id) {
       const { disconnectAccount } = await import('../../../../lib/socialapi');
       await disconnectAccount(row.sapi_id);
-    } catch { /* local removal already done; aggregator cleanup is best-effort */ }
-  }
+    } else if (row.provider === 'zernio' && row.zernio_id) {
+      const { disconnectAccount } = await import('../../../../lib/zernio');
+      await disconnectAccount(row.zernio_id);
+    }
+  } catch { /* local removal already done; aggregator cleanup is best-effort */ }
 
   return NextResponse.json({ ok: true });
 }

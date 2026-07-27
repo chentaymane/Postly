@@ -85,14 +85,18 @@ export const PLATFORMS = {
 };
 
 import { socialApiEnabled, SOCIALAPI_PLATFORMS } from './socialapi.js';
+import { zernioEnabled, ZERNIO_PLATFORMS } from './zernio.js';
 
-// Public, secret-free view for the browser. When the SocialAPI.ai aggregator
-// key is present, platforms it supports become connectable through it with no
-// per-platform app registration; direct OAuth remains the fallback.
+// Public, secret-free view for the browser. Aggregators provide one-click
+// connect with no per-platform app registration: SocialAPI.ai covers most
+// platforms, Zernio covers Pinterest. Direct OAuth remains the fallback.
 export function publicCatalog() {
-  const aggregator = socialApiEnabled();
+  const sapi = socialApiEnabled();
+  const zernio = zernioEnabled();
   return Object.entries(PLATFORMS).map(([key, p]) => {
-    const viaAggregator = aggregator && SOCIALAPI_PLATFORMS.has(key);
+    const viaSocialApi = sapi && SOCIALAPI_PLATFORMS.has(key);
+    const viaZernio = !viaSocialApi && zernio && ZERNIO_PLATFORMS.has(key);
+    const viaAggregator = viaSocialApi || viaZernio;
     const directConfigured =
       p.enabled && Boolean(process.env[p.clientIdEnv] && process.env[p.clientSecretEnv]);
     return {
@@ -103,9 +107,11 @@ export function publicCatalog() {
       enabled: p.enabled || viaAggregator,
       requirement: viaAggregator ? null : p.requirement || null,
       configured: viaAggregator || directConfigured,
-      connectPath: viaAggregator
+      connectPath: viaSocialApi
         ? `/api/aggregator/${key}/start`
-        : `/api/oauth/${key}/start`,
+        : viaZernio
+          ? `/api/zernio/${key}/start`
+          : `/api/oauth/${key}/start`,
     };
   });
 }

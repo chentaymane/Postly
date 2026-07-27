@@ -8,6 +8,7 @@
 // Extension is explicit so plain `node` scripts can import this module too.
 import { query } from './db.js';
 import { uploadMediaFromUrl, createPost, toSocialApiPlatform } from './socialapi.js';
+import { createPinPost } from './zernio.js';
 
 // ---------------------------------------------------------------------------
 // Prompts
@@ -325,6 +326,23 @@ async function publishViaAggregator(conn, content, platform) {
   return { post_id: post.id || null, raw: post };
 }
 
+// Publishes through Zernio (Pinterest). Media is attached by URL directly.
+async function publishViaZernio(conn, content, platform) {
+  if (platform !== 'pinterest') {
+    throw new Error(`Zernio publishing is only wired for Pinterest, got ${platform}`);
+  }
+  const accountId = conn.extra?.zernio_account_id || conn.account_id;
+  if (!accountId) throw new Error('Zernio connection is missing its account id');
+  return createPinPost({
+    accountId,
+    boardId: conn.extra?.board_id || undefined,
+    title: content.pinTitle,
+    description: content.pinDescription,
+    link: content.destinationUrl || undefined,
+    imageUrl: content.imageUrl,
+  });
+}
+
 // Per-platform image dimensions (Pinterest strongly prefers tall 2:3).
 export const IMAGE_DIMS = {
   pinterest: { width: 1000, height: 1500 },
@@ -406,18 +424,21 @@ export async function runForPlatform({ runId, userId, platform, conn, input }) {
     image_url: img.imageUrl,
   };
 
-  const viaAggregator = conn.provider === 'socialapi';
+  const provider = conn.provider || 'direct';
   const publish = publishers[platform];
-  if (!viaAggregator && !publish) {
+  if (provider === 'direct' && !publish) {
     const msg = `publishing to ${platform} is not implemented yet`;
     await logPost({ ...base, ...logCopy, status: 'fail', post_id: null, error_message: msg, raw_response: {} });
     return { platform, ok: false, error: msg, stage: 'publish', preview: previewOf(content, copy) };
   }
 
   try {
-    const result = viaAggregator
-      ? await publishViaAggregator(conn, content, platform)
-      : await publish(conn, content);
+    const result =
+      provider === 'socialapi'
+        ? await publishViaAggregator(conn, content, platform)
+        : provider === 'zernio'
+          ? await publishViaZernio(conn, content, platform)
+          : await publish(conn, content);
     await logPost({ ...base, ...logCopy, status: 'success', post_id: result.post_id,
       error_message: null, raw_response: result.raw });
     return { platform, ok: true, post_id: result.post_id, preview: previewOf(content, copy) };
