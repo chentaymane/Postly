@@ -11,10 +11,11 @@ export function socialApiEnabled() {
   return Boolean(process.env.SOCIALAPI_KEY);
 }
 
-// Platforms SocialAPI.ai can connect with its own managed OAuth apps
-// (X/Twitter is excluded: it requires bringing your own keys).
+// Platforms SocialAPI.ai can connect with its own managed OAuth apps.
+// Verified against their live API (2026-07): excluded are X/Twitter (412 —
+// requires bringing your own keys) and Pinterest (403 — paid tiers only, so
+// Pinterest routes through our direct integration instead).
 export const SOCIALAPI_PLATFORMS = new Set([
-  'pinterest',
   'instagram',
   'facebook',
   'threads',
