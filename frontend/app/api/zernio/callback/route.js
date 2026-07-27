@@ -29,9 +29,32 @@ export async function GET(request) {
   const oauthError = url.searchParams.get('error') || url.searchParams.get('error_description');
   if (oauthError) return fail(`${platformKey}: ${oauthError}`);
 
-  const accountId = url.searchParams.get('accountId');
-  const username = url.searchParams.get('username');
-  const profileId = url.searchParams.get('profileId');
+  // Zernio's redirect params vary from their docs (board-selection flow can
+  // omit accountId entirely) — accept known aliases, then fall back to asking
+  // their API for the newest account on this platform.
+  let accountId =
+    url.searchParams.get('accountId') ||
+    url.searchParams.get('account_id') ||
+    url.searchParams.get('accountID') ||
+    url.searchParams.get('id');
+  let username = url.searchParams.get('username');
+  let profileId = url.searchParams.get('profileId') || url.searchParams.get('profile_id');
+
+  if (!accountId) {
+    try {
+      const { listAccounts } = await import('../../../../lib/zernio');
+      const accounts = await listAccounts();
+      const candidates = accounts
+        .filter((a) => a.platform === platformKey)
+        .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+      const newest = candidates[0];
+      if (newest) {
+        accountId = newest._id || newest.id;
+        username = username || newest.displayName || newest.metadata?.userProfile?.username || null;
+        profileId = profileId || newest.profileId?._id || newest.profileId || null;
+      }
+    } catch { /* fall through to the error below */ }
+  }
   if (!accountId) return fail('Zernio did not return an account id');
 
   // Pinterest: fetch boards so the board picker works.

@@ -55,6 +55,11 @@ export async function createConnectLink({ platform, profileId, redirectUrl }) {
   return json;
 }
 
+export async function listAccounts() {
+  const json = await api('/accounts');
+  return json.accounts || json.data || (Array.isArray(json) ? json : []);
+}
+
 export async function listPinterestBoards(accountId) {
   const json = await api(`/accounts/${accountId}/pinterest-boards`);
   const items = json.boards || json.items || json.data || [];
