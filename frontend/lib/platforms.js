@@ -41,20 +41,22 @@ export const PLATFORMS = {
     clientIdEnv: 'META_CLIENT_ID',
     clientSecretEnv: 'META_CLIENT_SECRET',
   },
+  // "Instagram API with Instagram Login": users authenticate with Instagram
+  // directly, so no Facebook Page is involved. Uses its own Instagram app
+  // ID/secret (found under the Instagram product, NOT the Facebook app's).
   instagram: {
     name: 'Instagram',
     color: '#E4405F',
     emoji: '📷',
     enabled: true,
-    kind: 'meta',
-    authorizeUrl: 'https://www.facebook.com/v21.0/dialog/oauth',
-    tokenUrl: 'https://graph.facebook.com/v21.0/oauth/access_token',
-    scopes: META_SCOPES,
+    kind: 'instagram_login',
+    authorizeUrl: 'https://www.instagram.com/oauth/authorize',
+    tokenUrl: 'https://api.instagram.com/oauth/access_token',
+    scopes: ['instagram_business_basic', 'instagram_business_content_publish'],
     scopeSeparator: ',',
-    clientIdEnv: 'META_CLIENT_ID',
-    clientSecretEnv: 'META_CLIENT_SECRET',
-    // Publishing requires a Business/Creator account linked to a Page.
-    requirement: 'Instagram Business or Creator account linked to a Facebook Page',
+    clientIdEnv: 'INSTAGRAM_CLIENT_ID',
+    clientSecretEnv: 'INSTAGRAM_CLIENT_SECRET',
+    requirement: 'Instagram professional account (Business or Creator)',
   },
   x: {
     name: 'X (Twitter)',

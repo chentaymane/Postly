@@ -32,6 +32,8 @@ export async function GET(request, { params }) {
     let conn;
     if (key === 'pinterest') {
       conn = await connectPinterest(p, code);
+    } else if (p.kind === 'instagram_login') {
+      conn = await connectInstagram(p, code);
     } else if (p.kind === 'meta') {
       conn = await connectMeta(p, code, key);
     } else {
@@ -104,6 +106,78 @@ async function connectPinterest(p, code) {
       board_id: boards[0]?.id || null,
       board_name: boards[0]?.name || null,
     },
+  };
+}
+
+// Instagram API with Instagram Login: the user authenticates with Instagram
+// directly, so no Facebook Page is required. Publishing then goes through
+// graph.instagram.com with the Instagram user token.
+async function connectInstagram(p, code) {
+  const clientId = process.env[p.clientIdEnv];
+  const clientSecret = process.env[p.clientSecretEnv];
+
+  // 1. code -> short-lived Instagram user token
+  const tokenRes = await fetch(p.tokenUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: 'authorization_code',
+      redirect_uri: redirectUri('instagram'),
+      code,
+    }),
+  });
+  const token = await tokenRes.json().catch(() => ({}));
+  if (!tokenRes.ok || !token.access_token) {
+    throw new Error(token?.error_message || token?.error?.message || 'token exchange failed');
+  }
+
+  // 2. upgrade to a long-lived (60-day) token
+  let accessToken = token.access_token;
+  let expiresAt = null;
+  try {
+    const llRes = await fetch(
+      `https://graph.instagram.com/access_token?${new URLSearchParams({
+        grant_type: 'ig_exchange_token',
+        client_secret: clientSecret,
+        access_token: accessToken,
+      })}`
+    );
+    const ll = await llRes.json();
+    if (llRes.ok && ll.access_token) {
+      accessToken = ll.access_token;
+      if (ll.expires_in) {
+        expiresAt = new Date(Date.now() + ll.expires_in * 1000).toISOString();
+      }
+    }
+  } catch { /* keep the short-lived token rather than failing the connect */ }
+
+  // 3. identify the account
+  let username = null;
+  let igUserId = token.user_id ? String(token.user_id) : null;
+  try {
+    const meRes = await fetch(
+      `https://graph.instagram.com/v21.0/me?fields=user_id,username&access_token=${encodeURIComponent(accessToken)}`
+    );
+    const me = await meRes.json();
+    if (meRes.ok) {
+      username = me.username || null;
+      igUserId = me.user_id ? String(me.user_id) : igUserId;
+    }
+  } catch { /* non-fatal: fall back to the id from the token response */ }
+
+  if (!igUserId) throw new Error('could not determine the Instagram account id');
+
+  return {
+    platform: 'instagram',
+    account_name: username,
+    account_id: igUserId,
+    access_token: accessToken,
+    refresh_token: null,
+    token_expires_at: expiresAt,
+    scopes: p.scopes.join(','),
+    extra: { api: 'instagram_login', ig_user_id: igUserId, ig_username: username },
   };
 }
 

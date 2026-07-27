@@ -224,7 +224,12 @@ export const publishers = {
     const igUserId = conn.extra?.ig_user_id || conn.account_id;
     if (!igUserId) throw new Error('no Instagram Business account on this connection');
 
-    const graph = 'https://graph.facebook.com/v21.0';
+    // Instagram Login tokens work against graph.instagram.com; connections made
+    // through a Facebook Page use a Page token on graph.facebook.com.
+    const graph =
+      conn.extra?.api === 'instagram_login'
+        ? 'https://graph.instagram.com/v21.0'
+        : 'https://graph.facebook.com/v21.0';
     const caption = [content.caption, content.cta, content.hashtags]
       .filter(Boolean)
       .join('\n\n')
