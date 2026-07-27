@@ -84,17 +84,30 @@ export const PLATFORMS = {
   },
 };
 
-// Public, secret-free view for the browser.
+import { socialApiEnabled, SOCIALAPI_PLATFORMS } from './socialapi.js';
+
+// Public, secret-free view for the browser. When the SocialAPI.ai aggregator
+// key is present, platforms it supports become connectable through it with no
+// per-platform app registration; direct OAuth remains the fallback.
 export function publicCatalog() {
-  return Object.entries(PLATFORMS).map(([key, p]) => ({
-    key,
-    name: p.name,
-    color: p.color,
-    emoji: p.emoji,
-    enabled: p.enabled,
-    requirement: p.requirement || null,
-    configured: p.enabled ? Boolean(process.env[p.clientIdEnv] && process.env[p.clientSecretEnv]) : false,
-  }));
+  const aggregator = socialApiEnabled();
+  return Object.entries(PLATFORMS).map(([key, p]) => {
+    const viaAggregator = aggregator && SOCIALAPI_PLATFORMS.has(key);
+    const directConfigured =
+      p.enabled && Boolean(process.env[p.clientIdEnv] && process.env[p.clientSecretEnv]);
+    return {
+      key,
+      name: p.name,
+      color: p.color,
+      emoji: p.emoji,
+      enabled: p.enabled || viaAggregator,
+      requirement: viaAggregator ? null : p.requirement || null,
+      configured: viaAggregator || directConfigured,
+      connectPath: viaAggregator
+        ? `/api/aggregator/${key}/start`
+        : `/api/oauth/${key}/start`,
+    };
+  });
 }
 
 // Public base URL of this app. Explicit APP_BASE_URL wins; on Vercel we fall

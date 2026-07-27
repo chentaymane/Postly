@@ -118,11 +118,11 @@ function Dashboard() {
                     </div>
                   ) : isConnected ? (
                     <>
-                      <a className="btn btn-outline" href={`/api/oauth/${p.key}/start`}>Reconnect</a>
+                      <a className="btn btn-outline" href={p.connectPath}>Reconnect</a>
                       <button className="btn btn-ghost" onClick={() => disconnect(conns[0].id)}>Disconnect</button>
                     </>
                   ) : (
-                    <a className="btn btn-accent btn-block" href={`/api/oauth/${p.key}/start`}>
+                    <a className="btn btn-accent btn-block" href={p.connectPath}>
                       Connect {p.name}
                     </a>
                   )}

@@ -9,13 +9,24 @@ export async function DELETE(request, { params }) {
   if (!userId) return NextResponse.json({ error: 'not authenticated' }, { status: 401 });
 
   // user_id in the predicate prevents deleting another user's connection.
-  const res = await query('DELETE FROM social_connections WHERE id = $1 AND user_id = $2', [
-    params.id,
-    userId,
-  ]);
+  const res = await query(
+    `DELETE FROM social_connections WHERE id = $1 AND user_id = $2
+     RETURNING provider, extra->>'socialapi_account_id' AS sapi_id`,
+    [params.id, userId]
+  );
   if (res.rowCount === 0) {
     return NextResponse.json({ error: 'connection not found' }, { status: 404 });
   }
+
+  // Aggregator connections: also revoke on SocialAPI so the slot frees up.
+  const row = res.rows[0];
+  if (row.provider === 'socialapi' && row.sapi_id) {
+    try {
+      const { disconnectAccount } = await import('../../../../lib/socialapi');
+      await disconnectAccount(row.sapi_id);
+    } catch { /* local removal already done; aggregator cleanup is best-effort */ }
+  }
+
   return NextResponse.json({ ok: true });
 }
 

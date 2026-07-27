@@ -7,6 +7,7 @@
 
 // Extension is explicit so plain `node` scripts can import this module too.
 import { query } from './db.js';
+import { uploadMediaFromUrl, createPost, toSocialApiPlatform } from './socialapi.js';
 
 // ---------------------------------------------------------------------------
 // Prompts
@@ -293,6 +294,37 @@ export const publishers = {
   },
 };
 
+// Publishes through the SocialAPI.ai aggregator: upload the generated image,
+// then create the post against the connected account. Works for any platform
+// the aggregator supports, including ones we have no direct integration for.
+async function publishViaAggregator(conn, content, platform) {
+  const accountId = conn.extra?.socialapi_account_id || conn.account_id;
+  if (!accountId) throw new Error('aggregator connection is missing its account id');
+
+  const mediaId = await uploadMediaFromUrl(content.imageUrl);
+
+  let text = content.fullMessage;
+  let platformData;
+  if (platform === 'pinterest') {
+    text = content.pinDescription;
+    platformData = {
+      [toSocialApiPlatform(platform)]: {
+        ...(conn.extra?.board_id ? { board_id: conn.extra.board_id } : {}),
+        title: content.pinTitle,
+        ...(content.destinationUrl ? { link: content.destinationUrl } : {}),
+      },
+    };
+  }
+
+  const post = await createPost({ accountId, text, mediaIds: [mediaId], platformData });
+  const target = Array.isArray(post.targets) ? post.targets[0] : null;
+  if (post.status === 'failed' || target?.status === 'failed') {
+    throw new Error(target?.error || post.error || 'aggregator publish failed');
+  }
+  // Accepted with status "publishing"; delivery completes in the background.
+  return { post_id: post.id || null, raw: post };
+}
+
 // Per-platform image dimensions (Pinterest strongly prefers tall 2:3).
 export const IMAGE_DIMS = {
   pinterest: { width: 1000, height: 1500 },
@@ -374,15 +406,18 @@ export async function runForPlatform({ runId, userId, platform, conn, input }) {
     image_url: img.imageUrl,
   };
 
+  const viaAggregator = conn.provider === 'socialapi';
   const publish = publishers[platform];
-  if (!publish) {
+  if (!viaAggregator && !publish) {
     const msg = `publishing to ${platform} is not implemented yet`;
     await logPost({ ...base, ...logCopy, status: 'fail', post_id: null, error_message: msg, raw_response: {} });
     return { platform, ok: false, error: msg, stage: 'publish', preview: previewOf(content, copy) };
   }
 
   try {
-    const result = await publish(conn, content);
+    const result = viaAggregator
+      ? await publishViaAggregator(conn, content, platform)
+      : await publish(conn, content);
     await logPost({ ...base, ...logCopy, status: 'success', post_id: result.post_id,
       error_message: null, raw_response: result.raw });
     return { platform, ok: true, post_id: result.post_id, preview: previewOf(content, copy) };

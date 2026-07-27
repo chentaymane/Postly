@@ -73,3 +73,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_social_conn_user_platform_account
 
 CREATE INDEX IF NOT EXISTS idx_social_connections_user ON social_connections (user_id);
 CREATE INDEX IF NOT EXISTS idx_post_logs_user ON post_logs (user_id);
+
+-- ---------------------------------------------------------------------------
+-- Aggregator support (SocialAPI.ai): connections made through the aggregator
+-- store its account id instead of a platform token.
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE social_connections
+    ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'direct';  -- direct | socialapi
+ALTER TABLE social_connections
+    ALTER COLUMN access_token DROP NOT NULL;

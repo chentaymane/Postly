@@ -43,7 +43,7 @@ export async function POST(request) {
   // Load the stored connection for each requested platform.
   const { rows } = await query(
     `SELECT DISTINCT ON (platform)
-            id, platform, account_name, account_id, access_token, extra
+            id, platform, account_name, account_id, access_token, provider, extra
        FROM social_connections
       WHERE status = 'connected' AND user_id = $2 AND platform = ANY($1::text[])
       ORDER BY platform, updated_at DESC`,
