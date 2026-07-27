@@ -1,80 +1,57 @@
 /* ==========================================================================
-   Postly design system
-   Palette: #15173D deep indigo · #982598 magenta · #E491C9 pink · #F1E9E9 shell
+   Postly design system — White & Citron
+   Flat, minimal, typography-first (per ui-ux-pro-max: flat style, no
+   gradients, WCAG-safe). Citron is a SURFACE colour: it always carries
+   near-black ink text. Citron is never used as text on white — text-level
+   accents use --accent-deep (olive), which passes 4.5:1 on white.
    ========================================================================== */
 
 :root {
-  /* Raw brand colours (used by the logo gradient too) */
-  --brand-1: #15173D;
-  --brand-2: #982598;
-  --brand-3: #E491C9;
-  --brand-4: #F1E9E9;
+  /* Raw brand colours */
+  --brand-1: #171A09;   /* ink — near-black olive */
+  --brand-2: #D9E021;   /* citron */
+  --brand-3: #6D7407;   /* deep citron / olive (text-safe accent) */
+  --brand-4: #FFFFFF;   /* white */
 
-  /* Semantic tokens — light theme */
-  --bg: #FAF6F6;
-  --bg-alt: var(--brand-4);
+  /* Semantic tokens — single light theme */
+  --bg: #FFFFFF;
+  --bg-alt: #FAFAF3;
   --surface: #FFFFFF;
-  --surface-2: #F7F1F4;
-  --border: #E5D9E0;
-  --border-strong: #D3C2CD;
+  --surface-2: #F6F7E8;
+  --border: #E7E8D8;
+  --border-strong: #CFD1B8;
 
   --text: var(--brand-1);
-  --text-soft: #4A4C6E;
-  --text-dim: #7C7E99;
+  --text-soft: #43462F;
+  --text-dim: #6E7258;
 
-  --accent: var(--brand-2);
-  --accent-hover: #7E1F7E;
-  --accent-soft: #F6E9F5;
-  --accent-ring: rgba(152, 37, 152, 0.16);
+  --accent: var(--brand-2);          /* citron surfaces & CTAs        */
+  --on-accent: var(--brand-1);       /* ink text on citron            */
+  --accent-hover: #C9D112;
+  --accent-deep: var(--brand-3);     /* links, focus, active states   */
+  --accent-soft: #F7F9D8;
+  --accent-ring: rgba(109, 116, 7, 0.22);
 
-  --success: #12805C;
-  --success-soft: #E3F5EE;
-  --danger: #C0344B;
-  --danger-soft: #FBEAED;
-  --warn-soft: #FDF3E5;
-  --warn: #8A5A12;
+  --success: #12803C;
+  --success-soft: #E5F5EA;
+  --danger: #C03434;
+  --danger-soft: #FBEAEA;
+  --warn-soft: #FDF6E0;
+  --warn: #7A5B0E;
 
   --radius-sm: 8px;
   --radius: 12px;
   --radius-lg: 18px;
-  --shadow-sm: 0 1px 2px rgba(21, 23, 61, 0.06), 0 1px 3px rgba(21, 23, 61, 0.04);
-  --shadow: 0 4px 14px rgba(21, 23, 61, 0.07), 0 1px 3px rgba(21, 23, 61, 0.05);
-  --shadow-lg: 0 18px 40px rgba(21, 23, 61, 0.13);
+  /* Flat style: hairline borders do the separating; shadows stay whisper-light */
+  --shadow-sm: 0 1px 2px rgba(23, 26, 9, 0.05);
+  --shadow: 0 2px 8px rgba(23, 26, 9, 0.06);
+  --shadow-lg: 0 14px 34px rgba(23, 26, 9, 0.12);
 
   --header-h: 64px;
   --font: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0E1030;
-    --bg-alt: #15173D;
-    --surface: #1A1C45;
-    --surface-2: #212356;
-    --border: #2E3169;
-    --border-strong: #3D4185;
-
-    --text: #F1E9E9;
-    --text-soft: #C9C4DC;
-    --text-dim: #9A96BA;
-
-    --accent: #C55BC5;
-    --accent-hover: #D479D4;
-    --accent-soft: rgba(197, 91, 197, 0.14);
-    --accent-ring: rgba(197, 91, 197, 0.28);
-
-    --success: #4ADE9B;
-    --success-soft: rgba(74, 222, 155, 0.13);
-    --danger: #FB8A9E;
-    --danger-soft: rgba(251, 138, 158, 0.13);
-    --warn-soft: rgba(240, 187, 106, 0.14);
-    --warn: #F0BB6A;
-
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-    --shadow: 0 4px 16px rgba(0, 0, 0, 0.34);
-    --shadow-lg: 0 20px 44px rgba(0, 0, 0, 0.45);
-  }
-}
+/* Single deliberate light theme — the product is white & citron everywhere. */
 
 * { box-sizing: border-box; }
 
@@ -96,7 +73,7 @@ h1, h2, h3, h4 { letter-spacing: -0.021em; }
 ::selection { background: var(--accent); color: #fff; }
 
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--accent-deep);
   outline-offset: 2px;
   border-radius: 4px;
 }
@@ -139,7 +116,7 @@ h1, h2, h3, h4 { letter-spacing: -0.021em; }
   transition: background 0.14s, color 0.14s;
 }
 .navlink:hover { background: var(--surface-2); color: var(--text); }
-.navlink.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.navlink.active { background: var(--accent-soft); color: var(--accent-deep); font-weight: 600; }
 
 .user-chip {
   display: flex;
@@ -154,7 +131,7 @@ h1, h2, h3, h4 { letter-spacing: -0.021em; }
   border-radius: 50%;
   display: grid; place-items: center;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-size: 12px; font-weight: 700;
   flex-shrink: 0;
 }
@@ -249,7 +226,7 @@ h1, h2, h3, h4 { letter-spacing: -0.021em; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-block { width: 100%; }
 
-.btn-accent { background: var(--accent); color: #fff; box-shadow: var(--shadow-sm); }
+.btn-accent { background: var(--accent); color: var(--on-accent); box-shadow: var(--shadow-sm); }
 .btn-accent:hover:not(:disabled) { background: var(--accent-hover); box-shadow: 0 0 0 4px var(--accent-ring); }
 
 .btn-outline { background: var(--surface); color: var(--text-soft); border-color: var(--border-strong); }
@@ -263,7 +240,7 @@ h1, h2, h3, h4 { letter-spacing: -0.021em; }
 .link-btn {
   background: none; border: none; padding: 0;
   font-family: inherit; font-size: 13px; font-weight: 600;
-  color: var(--accent); cursor: pointer;
+  color: var(--accent-deep); cursor: pointer;
 }
 .link-btn:hover { text-decoration: underline; }
 
@@ -457,24 +434,24 @@ h1, h2, h3, h4 { letter-spacing: -0.021em; }
 
 .auth-shell { display: grid; grid-template-columns: 1.02fr 1fr; min-height: 100vh; }
 .auth-brand {
-  background: var(--brand-1);
-  color: var(--brand-4);
+  background: var(--accent);
+  color: var(--on-accent);
   padding: clamp(36px, 5vw, 64px);
   display: flex; flex-direction: column; justify-content: space-between;
 }
-.auth-brand .logo-word { color: var(--brand-4); }
+.auth-brand .logo-word { color: var(--on-accent); }
 .auth-pitch { max-width: 23ch; }
 .auth-pitch h2 { font-size: clamp(28px, 3.4vw, 40px); line-height: 1.15; margin: 0 0 15px; }
-.auth-pitch p { color: rgba(241, 233, 233, 0.72); font-size: 15px; margin: 0; }
+.auth-pitch p { color: rgba(23, 26, 9, 0.72); font-size: 15px; margin: 0; }
 .auth-feats { list-style: none; padding: 0; margin: 32px 0 0; }
 .auth-feats li {
   display: flex; align-items: center; gap: 11px;
   font-size: 14px; margin-bottom: 13px;
-  color: rgba(241, 233, 233, 0.88);
+  color: rgba(23, 26, 9, 0.88);
 }
 .auth-tick {
   width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0;
-  background: var(--brand-3); color: var(--brand-1);
+  background: var(--brand-1); color: var(--accent);
   display: grid; place-items: center; font-size: 10px; font-weight: 800;
 }
 .auth-form-side { display: grid; place-items: center; padding: clamp(28px, 5vw, 56px); background: var(--bg); }
@@ -510,12 +487,12 @@ h1, h2, h3, h4 { letter-spacing: -0.021em; }
   display: inline-flex; align-items: center; gap: 8px;
 }
 .tab:hover { color: var(--text); }
-.tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.tab.active { color: var(--text); border-bottom-color: var(--accent-deep); }
 .tab-count {
   background: var(--surface-2); border: 1px solid var(--border);
   border-radius: 999px; font-size: 11px; padding: 1px 8px; color: var(--text-dim);
 }
-.tab.active .tab-count { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tab.active .tab-count { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 
 /* Toast (z-scale: overlay = 50) */
 .toast {
