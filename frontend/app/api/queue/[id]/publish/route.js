@@ -28,7 +28,8 @@ export async function POST(request, { params }) {
   }
 
   const { rows } = await query(
-    `SELECT * FROM queued_posts WHERE id = $1 AND user_id = $2 AND status IN ('draft','failed')`,
+    `SELECT * FROM queued_posts
+      WHERE id = $1 AND user_id = $2 AND status IN ('draft','failed','unconfirmed')`,
     [params.id, userId]
   );
   const post = rows[0];
@@ -45,6 +46,13 @@ export async function POST(request, { params }) {
     return NextResponse.json({ error: `${post.platform} account not connected` }, { status: 400 });
   }
 
+  if (post.format === 'video' && !post.video_url) {
+    return NextResponse.json(
+      { error: 'the video has not finished rendering yet' },
+      { status: 409 }
+    );
+  }
+
   const content = {
     caption: post.caption,
     hashtags: post.hashtags,
@@ -53,6 +61,9 @@ export async function POST(request, { params }) {
     pinDescription: post.pin_description,
     imageUrl: post.image_url,
     imageUrls: Array.isArray(post.image_urls) ? post.image_urls : null,
+    videoUrl: post.video_url || null,
+    videoTitle: post.pin_title || post.theme || null,
+    coverUrl: post.image_url || null,
     destinationUrl: post.destination_url || '',
     fullMessage: [post.caption, post.cta, post.hashtags].filter(Boolean).join('\n\n'),
   };
@@ -78,11 +89,28 @@ export async function POST(request, { params }) {
     });
     return NextResponse.json({ ok: true, status: newStatus, post_id: result.post_id, scheduled_at: scheduledAt });
   } catch (e) {
+    // An unconfirmed publish is NOT a failure: the platform may well have taken
+    // the post. Parking it in its own state stops the user from retrying into a
+    // duplicate, and keeps it out of the "failed" count.
+    const status = e.unconfirmed ? 'unconfirmed' : 'failed';
     await query(
-      `UPDATE queued_posts SET status = 'failed', error_message = $3, updated_at = now()
+      `UPDATE queued_posts SET status = $3, error_message = $4, updated_at = now()
         WHERE id = $1 AND user_id = $2`,
-      [post.id, userId, e.message]
+      [post.id, userId, status, e.message]
     );
-    return NextResponse.json({ ok: false, error: e.message }, { status: 502 });
+    await logPost({
+      run_id: null, user_id: userId, platform: post.platform,
+      status: e.unconfirmed ? 'unconfirmed' : 'fail',
+      post_id: null, error_message: e.message,
+      theme: post.theme, product_name: null, tone: post.tone,
+      caption: post.caption, hashtags: post.hashtags, cta: post.cta,
+      image_url: post.image_url, destination_url: post.destination_url,
+      raw_request: { queued_post_id: post.id },
+      raw_response: { error: e.message },
+    });
+    return NextResponse.json(
+      { ok: false, unconfirmed: Boolean(e.unconfirmed), status, error: e.message },
+      { status: e.unconfirmed ? 202 : 502 }
+    );
   }
 }

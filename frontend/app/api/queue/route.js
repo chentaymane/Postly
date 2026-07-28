@@ -11,7 +11,7 @@ export async function GET() {
   if (!userId) return NextResponse.json({ error: 'not authenticated' }, { status: 401 });
   const { rows } = await query(
     `SELECT * FROM queued_posts
-      WHERE user_id = $1 AND status IN ('draft','scheduled','failed')
+      WHERE user_id = $1 AND status IN ('draft','scheduled','failed','unconfirmed')
       ORDER BY id DESC LIMIT 100`,
     [userId]
   );

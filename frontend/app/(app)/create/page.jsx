@@ -160,24 +160,32 @@ export default function CreatePage() {
             </div>
 
             <div className="field">
-              <label>Images</label>
+              <label>Format</label>
               <div className="checks">
-                <label className={`check${format === 'single' ? ' selected' : ''}`}>
-                  <input type="radio" name="format" value="single"
-                         checked={format === 'single'} onChange={() => setFormat('single')} />
-                  Single image
-                </label>
-                <label className={`check${format === 'carousel' ? ' selected' : ''}`}>
-                  <input type="radio" name="format" value="carousel"
-                         checked={format === 'carousel'} onChange={() => setFormat('carousel')} />
-                  Story carousel (3–4 slides)
-                </label>
+                {[
+                  ['single', 'Single image'],
+                  ['carousel', 'Story carousel'],
+                  ['video', 'Narrated video'],
+                ].map(([val, label]) => (
+                  <label key={val} className={`check${format === val ? ' selected' : ''}`}>
+                    <input type="radio" name="format" value={val}
+                           checked={format === val} onChange={() => setFormat(val)} />
+                    {label}
+                  </label>
+                ))}
               </div>
               {format === 'carousel' && (
                 <p className="hint">
-                  The AI tells a story across slides — e.g. bored kid on a phone → discovers colouring →
-                  proudly shows the finished page. Publishes as a swipeable Instagram carousel
-                  (Pinterest uses the first slide).
+                  3–4 slides telling one story — e.g. bored kid on a phone → discovers colouring →
+                  proudly shows the finished page. Publishes as a swipeable carousel on Instagram,
+                  Facebook and Pinterest.
+                </p>
+              )}
+              {format === 'video' && (
+                <p className="hint">
+                  A vertical short: the AI writes a 5–6 scene script, generates the artwork, and your
+                  local render worker voices it with Piper and edits it with FFmpeg. The draft appears
+                  under Review as <em>Rendering…</em> and becomes publishable once the video is ready.
                 </p>
               )}
             </div>

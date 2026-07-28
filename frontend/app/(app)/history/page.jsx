@@ -4,6 +4,15 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { PlatformIcon } from '../../../components/BrandIcons';
 
+// An unconfirmed attempt is not a failure: the platform stopped answering
+// before it told us either way, so it gets its own label.
+const STATUS_PILL = {
+  success: ['connected', 'Published'],
+  scheduled: ['soon', 'Scheduled'],
+  unconfirmed: ['soon', 'Unconfirmed'],
+  fail: ['failed', 'Failed'],
+};
+
 export default function HistoryPage() {
   const [posts, setPosts] = useState([]);
   const [error, setError] = useState(null);
@@ -58,8 +67,8 @@ export default function HistoryPage() {
               )}
               <div className="history-body">
                 <div className="history-meta">
-                  <span className={`pill ${p.status === 'success' ? 'connected' : 'failed'}`}>
-                    <span className="dot" />{p.status === 'success' ? 'Published' : 'Failed'}
+                  <span className={`pill ${STATUS_PILL[p.status]?.[0] || 'failed'}`}>
+                    <span className="dot" />{STATUS_PILL[p.status]?.[1] || 'Failed'}
                   </span>
                   <span className="history-platform">
                     <PlatformIcon platform={p.platform} size={15} /> {p.platform}

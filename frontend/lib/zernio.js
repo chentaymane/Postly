@@ -70,14 +70,39 @@ export function disconnectAccount(accountId) {
   return api(`/accounts/${accountId}`, { method: 'DELETE' });
 }
 
+// Most recent posts, used to confirm whether a publish that timed out on our
+// side actually went through.
+export async function listRecentPosts(limit = 20) {
+  const json = await api(`/posts?limit=${limit}`);
+  const posts = json.posts || json.data || (Array.isArray(json) ? json : []);
+  return posts.map((p) => ({
+    id: p._id || p.id || null,
+    content: p.content || '',
+    title: p.platforms?.[0]?.platformSpecificData?.title || '',
+    url: p.platforms?.[0]?.platformPostUrl || null,
+    createdAt: p.createdAt || p.created_at || null,
+    status: p.status || p.platforms?.[0]?.status || null,
+  }));
+}
+
 // Cancels a scheduled post on Zernio.
 export function deletePost(postId) {
   return api(`/posts/${postId}`, { method: 'DELETE' });
 }
 
 // Publishes a Pinterest pin immediately, or schedules it when `scheduledFor`
-// (ISO 8601, UTC) is given. Media is attached by URL directly.
-export async function createPinPost({ accountId, boardId, title, description, link, imageUrl, scheduledFor }) {
+// (ISO 8601, UTC) is given. Media is attached by URL directly: several image
+// URLs become a carousel pin, a video URL becomes a video pin.
+export async function createPinPost({
+  accountId, boardId, title, description, link, imageUrls = [], videoUrl, coverUrl, scheduledFor,
+}) {
+  // Pinterest carousels take at most 5 slides and reject mixed aspect ratios —
+  // the generator already renders every slide at one size.
+  const mediaItems = videoUrl
+    ? [{ type: 'video', url: videoUrl, ...(coverUrl ? { thumbnailUrl: coverUrl } : {}) }]
+    : imageUrls.slice(0, 5).map((url) => ({ type: 'image', url }));
+  if (mediaItems.length === 0) throw new Error('nothing to publish: the post has no media');
+
   const json = await api('/posts', {
     method: 'POST',
     body: {
@@ -85,7 +110,7 @@ export async function createPinPost({ accountId, boardId, title, description, li
       ...(scheduledFor
         ? { scheduledFor, timezone: 'UTC', publishNow: false }
         : { publishNow: true }),
-      mediaItems: [{ type: 'image', url: imageUrl }],
+      mediaItems,
       platforms: [
         {
           platform: 'pinterest',

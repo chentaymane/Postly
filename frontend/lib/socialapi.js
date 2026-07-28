@@ -99,24 +99,37 @@ export function getPost(postId) {
   return api(`/posts/${postId}`);
 }
 
+// Most recent posts, used to confirm whether a publish that timed out on our
+// side actually went through.
+export async function listRecentPosts(limit = 20) {
+  const json = await api(`/posts?limit=${limit}`);
+  const posts = json.posts || json.data || (Array.isArray(json) ? json : []);
+  return posts.map((p) => ({
+    id: p.id || p._id || null,
+    content: p.text || p.content || '',
+    createdAt: p.created_at || p.createdAt || null,
+    status: p.status || p.targets?.[0]?.status || null,
+  }));
+}
+
 // Cancels a scheduled post (or deletes a draft) on SocialAPI.
 export function deletePost(postId) {
   return api(`/posts/${postId}`, { method: 'DELETE' });
 }
 
 // Media upload. External URLs in media_ids are silently ignored by SocialAPI,
-// so the generated image must be uploaded first. Our images are ~100 KB, well
-// under the 50 MB single-request limit.
-export async function uploadMediaFromUrl(imageUrl) {
-  // 1. fetch the generated image bytes (Pollinations URL)
-  const imgRes = await fetch(imageUrl, { signal: AbortSignal.timeout(60000) });
-  if (!imgRes.ok) throw new Error(`could not fetch generated image (HTTP ${imgRes.status})`);
+// so the generated media must be uploaded first. Images are ~100 KB and a
+// rendered short is a few MB — both well under the 50 MB single-request limit.
+export async function uploadMediaFromUrl(mediaUrl) {
+  // 1. fetch the bytes (a generated image, or the worker's rendered MP4)
+  const imgRes = await fetch(mediaUrl, { signal: AbortSignal.timeout(120000) });
+  if (!imgRes.ok) throw new Error(`could not fetch generated media (HTTP ${imgRes.status})`);
   const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
   const blob = new Blob([await imgRes.arrayBuffer()], { type: contentType });
 
   // 2. single-request server-side upload
   const form = new FormData();
-  form.append('file', blob, 'postly-image.jpg');
+  form.append('file', blob, contentType.startsWith('video/') ? 'postly-video.mp4' : 'postly-image.jpg');
   const res = await fetch(`${BASE}/media/upload`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${process.env.SOCIALAPI_KEY}` },

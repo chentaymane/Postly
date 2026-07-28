@@ -18,7 +18,13 @@ function DraftCard({ post, onChanged }) {
   const [whenHour, setWhenHour] = useState('10');
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
+  const [notice, setNotice] = useState(null);
   const isPinterest = post.platform === 'pinterest';
+  const isVideo = post.format === 'video';
+  const videoReady = Boolean(post.video_url);
+  const rendering = isVideo && !videoReady && post.video_status !== 'failed';
+  const unconfirmed = post.status === 'unconfirmed';
+  const slides = Array.isArray(post.image_urls) ? post.image_urls : [];
   // Local date + a plain 0-23 hour, combined into one timestamp.
   const when = whenDate ? `${whenDate}T${whenHour.padStart(2, '0')}:00` : '';
 
@@ -30,15 +36,34 @@ function DraftCard({ post, onChanged }) {
   }
 
   async function publish(scheduled) {
-    setBusy(scheduled ? 'schedule' : 'publish'); setError(null);
+    setBusy(scheduled ? 'schedule' : 'publish'); setError(null); setNotice(null);
     await saveSilently();
     const res = await fetch(`/api/queue/${post.id}/publish`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(scheduled && when ? { when: new Date(when).toISOString() } : {}),
     });
     const json = await res.json();
-    if (!res.ok || !json.ok) { setError(json.error || 'publish failed'); setBusy(null); return; }
+    if (!res.ok || !json.ok) {
+      // 202 = the platform never answered. The post may well be live, so the
+      // card switches to the "check it" state instead of claiming it failed.
+      if (json.unconfirmed) { onChanged('Publish unconfirmed — check the post below'); return; }
+      setError(json.error || 'publish failed'); setBusy(null); return;
+    }
     onChanged(scheduled ? 'Post scheduled ✓' : 'Post published ✓');
+  }
+
+  // Resolves an unconfirmed publish: ask the platform, or take the user's word.
+  async function resolve(force) {
+    setBusy(force ? 'force' : 'check'); setError(null); setNotice(null);
+    const res = await fetch(`/api/queue/${post.id}/confirm`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(force ? { force: true } : {}),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (json.status === 'published') { onChanged('Marked as published ✓'); return; }
+    if (json.status === 'draft') { onChanged(json.message || 'Not published — back in drafts'); return; }
+    setNotice(json.message || json.error || 'Could not check the platform');
+    setBusy(null);
   }
 
   async function remove() {
@@ -51,13 +76,18 @@ function DraftCard({ post, onChanged }) {
   return (
     <div className="review-card">
       <div className="review-media">
-        {post.image_url && (
-          /* eslint-disable-next-line @next/next/no-img-element */
-          <img className="review-img" src={post.image_url} alt="Generated post image" />
+        {videoReady ? (
+          <video className="review-img" src={post.video_url} poster={post.image_url || undefined}
+                 controls playsInline preload="metadata" />
+        ) : (
+          post.image_url && (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img className="review-img" src={post.image_url} alt="Generated post image" />
+          )
         )}
-        {Array.isArray(post.image_urls) && post.image_urls.length > 1 && (
+        {slides.length > 1 && (
           <div className="slide-strip">
-            {post.image_urls.map((u, i) => (
+            {slides.map((u, i) => (
               /* eslint-disable-next-line @next/next/no-img-element */
               <img key={i} className="slide-thumb" src={u} alt={`Slide ${i + 1}`} />
             ))}
@@ -69,17 +99,50 @@ function DraftCard({ post, onChanged }) {
           <span className="platform-chip" style={{ background: PLATFORM_COLORS[post.platform] }}>
             <PlatformIcon platform={post.platform} size={13} /> {post.platform}
           </span>
-          {Array.isArray(post.image_urls) && post.image_urls.length > 1 && (
-            <span className="pill soon">{post.image_urls.length} slides</span>
-          )}
-          {post.status === 'failed' ? (
+          {isVideo ? (
+            <span className="pill soon">
+              {videoReady
+                ? `Video · ${post.duration_seconds ? Math.round(post.duration_seconds) + 's' : slides.length + ' scenes'}`
+                : `${slides.length} scenes`}
+            </span>
+          ) : slides.length > 1 ? (
+            <span className="pill soon">{slides.length} slides</span>
+          ) : null}
+          {rendering ? (
+            <span className="pill soon"><span className="spinner" />Rendering…</span>
+          ) : unconfirmed ? (
+            <span className="pill soon"><span className="dot" />Unconfirmed</span>
+          ) : post.status === 'failed' ? (
             <span className="pill disconnected"><span className="dot" />Failed</span>
           ) : (
             <span className="pill disconnected"><span className="dot" />Draft</span>
           )}
         </div>
 
-        {post.error_message && <div className="notice err">{post.error_message}</div>}
+        {unconfirmed ? (
+          <div className="notice warn">
+            <strong>!</strong>
+            <span>
+              {post.error_message || `${post.platform} never confirmed this publish.`}{' '}
+              Check your {post.platform} account: if the post is there, mark it published —
+              publishing again would post it twice.
+            </span>
+          </div>
+        ) : (
+          post.error_message && <div className="notice err">{post.error_message}</div>
+        )}
+        {rendering && (
+          <div className="notice">
+            <span>
+              Waiting for the render worker to voice and edit this video. It appears here
+              automatically when the MP4 is ready.
+            </span>
+          </div>
+        )}
+        {isVideo && post.video_status === 'failed' && post.video_error && (
+          <div className="notice err"><strong>!</strong><span>Rendering failed: {post.video_error}</span></div>
+        )}
+        {notice && <div className="notice">{notice}</div>}
         {error && <div className="notice err">{error}</div>}
 
         {isPinterest && (
@@ -112,27 +175,40 @@ function DraftCard({ post, onChanged }) {
           </>
         )}
 
-        <div className="review-actions">
-          <button className="btn btn-accent" disabled={!!busy} onClick={() => publish(false)}>
-            {busy === 'publish' ? <span className="spinner" /> : 'Publish now'}
-          </button>
-          <div className="schedule-group">
-            <label className="sr-only" htmlFor={`wd-${post.id}`}>Schedule date</label>
-            <input id={`wd-${post.id}`} type="date" value={whenDate}
-                   onChange={(e) => setWhenDate(e.target.value)} />
-            <label className="sr-only" htmlFor={`wh-${post.id}`}>Schedule hour (0-23)</label>
-            <select id={`wh-${post.id}`} value={whenHour}
-                    onChange={(e) => setWhenHour(e.target.value)}>
-              {Array.from({ length: 24 }, (_, h) => (
-                <option key={h} value={String(h)}>{String(h).padStart(2, '0')}:00</option>
-              ))}
-            </select>
-            <button className="btn btn-outline" disabled={!!busy || !when} onClick={() => publish(true)}>
-              {busy === 'schedule' ? <span className="spinner" /> : 'Schedule'}
+        {unconfirmed ? (
+          <div className="review-actions">
+            <button className="btn btn-accent" disabled={!!busy} onClick={() => resolve(false)}>
+              {busy === 'check' ? <span className="spinner" /> : `Check ${post.platform}`}
             </button>
+            <button className="btn btn-outline" disabled={!!busy} onClick={() => resolve(true)}>
+              {busy === 'force' ? <span className="spinner" /> : 'It’s live — mark published'}
+            </button>
+            <button className="btn btn-ghost" disabled={!!busy} onClick={remove}>Delete</button>
           </div>
-          <button className="btn btn-ghost" disabled={!!busy} onClick={remove}>Delete</button>
-        </div>
+        ) : (
+          <div className="review-actions">
+            <button className="btn btn-accent" disabled={!!busy || rendering} onClick={() => publish(false)}>
+              {busy === 'publish' ? <span className="spinner" /> : 'Publish now'}
+            </button>
+            <div className="schedule-group">
+              <label className="sr-only" htmlFor={`wd-${post.id}`}>Schedule date</label>
+              <input id={`wd-${post.id}`} type="date" value={whenDate}
+                     onChange={(e) => setWhenDate(e.target.value)} />
+              <label className="sr-only" htmlFor={`wh-${post.id}`}>Schedule hour (0-23)</label>
+              <select id={`wh-${post.id}`} value={whenHour}
+                      onChange={(e) => setWhenHour(e.target.value)}>
+                {Array.from({ length: 24 }, (_, h) => (
+                  <option key={h} value={String(h)}>{String(h).padStart(2, '0')}:00</option>
+                ))}
+              </select>
+              <button className="btn btn-outline" disabled={!!busy || rendering || !when}
+                      onClick={() => publish(true)}>
+                {busy === 'schedule' ? <span className="spinner" /> : 'Schedule'}
+              </button>
+            </div>
+            <button className="btn btn-ghost" disabled={!!busy} onClick={remove}>Delete</button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -199,7 +275,16 @@ export default function ReviewPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const drafts = posts.filter((p) => p.status === 'draft' || p.status === 'failed');
+  // Videos are rendered by a worker outside this request, so poll while any
+  // draft is still waiting for its MP4.
+  const rendering = posts.some((p) => p.format === 'video' && !p.video_url && p.video_status !== 'failed');
+  useEffect(() => {
+    if (!rendering) return undefined;
+    const t = setInterval(load, 15000);
+    return () => clearInterval(t);
+  }, [rendering, load]);
+
+  const drafts = posts.filter((p) => ['draft', 'failed', 'unconfirmed'].includes(p.status));
   const scheduled = posts.filter((p) => p.status === 'scheduled' && p.scheduled_at);
   const groups = groupByDay(scheduled);
 

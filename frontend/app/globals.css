@@ -254,6 +254,7 @@ h1, h2, h3, h4 { letter-spacing: -0.021em; }
 }
 .notice.ok { background: var(--success-soft); border-color: color-mix(in srgb, var(--success) 26%, transparent); color: var(--success); }
 .notice.err { background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 26%, transparent); color: var(--danger); }
+.notice.warn { background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 26%, transparent); color: var(--warn); }
 
 /* -------------------------------------------------------------- Forms ---- */
 
@@ -552,6 +553,7 @@ h1, h2, h3, h4 { letter-spacing: -0.021em; }
   border: 1px solid var(--border); object-fit: cover;
   background: var(--surface-2); align-self: start;
 }
+video.review-img { aspect-ratio: 9 / 16; max-height: 460px; background: #000; object-fit: contain; }
 .review-body { min-width: 0; display: flex; flex-direction: column; gap: 14px; }
 .review-media { display: flex; flex-direction: column; gap: 8px; align-self: start; }
 .slide-strip { display: flex; gap: 6px; }

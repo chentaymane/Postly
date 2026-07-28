@@ -5,9 +5,21 @@ One-click AI marketing content generation & multi-platform social publishing.
 Enter a theme or product name, pick your connected accounts, and Postly:
 
 1. Generates marketing copy (caption, hashtags, CTA) with a free LLM
-2. Generates a matching promotional image with a free image model
+2. Generates the visuals — one image, a story carousel, or a narrated video
 3. Publishes to your connected platforms
 4. Logs every attempt (platform, status, post ID, errors) for tracking
+
+## Formats
+
+| Format             | What it makes                                                        |
+|--------------------|----------------------------------------------------------------------|
+| **Single image**   | One scroll-stopping image + caption                                   |
+| **Story carousel** | 3–4 slides telling one story, one character throughout                |
+| **Narrated video** | A vertical short: AI script, generated artwork, Piper voice, FFmpeg cut |
+
+Carousel slides are all rendered at one exact size, which is what lets them
+publish as a real carousel on Instagram, Facebook **and** Pinterest — Pinterest
+rejects a set whose slides differ in aspect ratio.
 
 ## Architecture
 
@@ -23,15 +35,16 @@ orchestrator, deployable free to Vercel + Neon.
    ├── /api/auth/*  ·  /api/signup             sign up / sign in (Auth.js)
    ├── /api/oauth/<platform>/{start,callback}   one-click account connect
    ├── /api/connections                        list / disconnect / pick board
-   ├── /api/publish  ──► pipeline:
-   │                       Groq  ──(fallback)──► OpenRouter      copy
-   │                       Pollinations (flux → turbo)           image
-   │                       platform publish API                  post
-   │                       post_logs insert                       log
+   ├── /api/generate ──► copy + artwork ──► review queue (drafts)
+   ├── /api/queue/<id>/publish ──► publish or schedule, then verify
+   ├── /api/render/jobs        ◄── the local video worker polls here
    └── /api/history                            past posts + errors
         │
         ▼
- Postgres  ·  users  ·  social_connections (tokens)  ·  post_logs (audit)
+ Postgres  ·  users  ·  social_connections  ·  queued_posts  ·  post_logs
+        ▲
+        │  MP4 + duration
+ worker/ (your machine)  ·  Piper TTS  ·  FFmpeg  ·  APScheduler
 ```
 
 **Multi-tenant:** every connection and post row is owned by a `user_id`. All
@@ -43,9 +56,15 @@ per user. Auth is Auth.js with email/password (bcrypt) and JWT sessions.
 | App + API        | Next.js 14 (App Router)                                 |
 | Text generation  | Groq (primary) → OpenRouter (fallback)                   |
 | Image generation | Pollinations.ai (`flux` → `turbo` fallback), no API key  |
+| Voiceover        | Piper TTS, offline, `en_US-ryan-medium` (free)          |
+| Video editing    | FFmpeg — Ken Burns motion, crossfades, burned captions   |
 | Database         | Postgres — Neon free tier in prod                        |
 | Hosting          | Vercel (free) + Neon (free)                             |
 | Secrets          | `.env.local` locally, Vercel env vars in prod            |
+
+No single model makes a video: the LLM writes the script, the image model draws
+each scene, Piper speaks it, FFmpeg assembles it. All of it free, and the heavy
+parts run locally.
 
 Tokens are stored server-side and **never sent to the browser**.
 
@@ -89,14 +108,14 @@ Each platform needs a developer app registered **once**, with this redirect URI:
 Paste its client ID/secret into `.env.local`, restart, and the platform's card
 on the dashboard becomes a live **Connect** button — OAuth popup, done.
 
-| Platform  | Status      | Notes |
-|-----------|-------------|-------|
-| Pinterest | ✅ wired    | Business account + board. **App secret is withheld until Pinterest grants trial access** |
-| Instagram | ✅ wired    | Business/Creator account **linked to a Facebook Page**; two-step container publish |
-| Facebook  | ✅ wired    | Publishes a photo + caption to a Page |
-| X         | 🔜 planned  | Requires HTTPS redirect |
-| LinkedIn  | 🔜 planned  | Company Page needs review |
-| TikTok    | 🔜 planned  | Stricter app review |
+| Platform  | Status      | Formats                  | Notes |
+|-----------|-------------|--------------------------|-------|
+| Pinterest | ✅ wired    | image · carousel · video | Business account + board. **App secret is withheld until Pinterest grants trial access** |
+| Instagram | ✅ wired    | image · carousel · reel  | Business/Creator account **linked to a Facebook Page**; two-step container publish |
+| Facebook  | ✅ wired    | image · carousel · video | Publishes a photo + caption to a Page |
+| TikTok    | 🔜 planned  | video                    | Connects through the aggregator; direct app review is stricter |
+| X         | 🔜 planned  | —                        | Requires HTTPS redirect |
+| LinkedIn  | 🔜 planned  | —                        | Company Page needs review |
 
 **Facebook and Instagram share one Meta app** — one client ID/secret
 (`META_CLIENT_ID` / `META_CLIENT_SECRET`) and one OAuth flow. Connecting either
@@ -117,25 +136,41 @@ accounts you own without app review.
 4. Run `npm run db:setup` once against the Neon URL to create the tables.
 5. Update each platform app's redirect URI to the deployed URL.
 
+## Video posts
+
+Piper and FFmpeg cannot run on a serverless function, so video rendering lives
+in a small worker you run yourself — see [`worker/README.md`](worker/README.md)
+for setup. In short:
+
+```bash
+sudo apt install ffmpeg
+cd worker && pip install -r requirements.txt
+# download the Piper voice, cp .env.example .env, fill it in
+python render_worker.py
+```
+
+Pick **Narrated video** on the Create page and the draft appears under Review
+as *Rendering…*; once the worker returns the MP4 it becomes a playable draft
+you can approve, schedule or delete like any other post.
+
+Without the worker running, the other two formats work exactly as before —
+video drafts simply sit and wait.
+
 ## Repository layout
 
 ```
 .
-├── frontend/                 # the entire app (UI + API + pipeline)
+├── frontend/                 # the app (UI + API + generation pipeline)
 │   ├── app/                  # pages and API routes
-│   ├── lib/pipeline.js       # copy + image generation, publishers, logging
+│   ├── lib/pipeline.js       # copy + artwork generation, publishers, logging
 │   ├── lib/platforms.js      # platform registry (OAuth + display metadata)
 │   ├── lib/schema.sql        # database schema
 │   └── scripts/db-setup.mjs  # applies the schema
-├── n8n/workflows/            # legacy: earlier n8n implementation (reference)
-├── db/init/                  # legacy: Postgres init for the Docker setup
-├── docker-compose.yml        # legacy: n8n + Postgres stack
-└── services/assembly/        # planned: sharp branding-overlay service
+└── worker/                   # local video renderer (Piper + FFmpeg)
+    ├── render_worker.py      # polls the app for jobs
+    ├── renderer.py           # voice, Ken Burns, crossfades, captions
+    └── hosting.py            # puts the MP4 somewhere platforms can fetch it
 ```
-
-The `n8n` + Docker setup was the original backend and still works
-(`docker compose up -d`), but the Next.js pipeline supersedes it — keeping the
-app deployable for free with no server to maintain.
 
 ## Roadmap
 
@@ -144,9 +179,12 @@ app deployable for free with no server to maintain.
 - [x] Connections dashboard with one-click OAuth
 - [x] Create-post form with image/copy preview
 - [x] Post history view
-- [x] Pinterest publishing
+- [x] Pinterest, Instagram and Facebook publishing
 - [x] Multi-user accounts with per-user data scoping
-- [ ] Facebook, Instagram, X, LinkedIn connectors
+- [x] Scheduling and a review queue
+- [x] Story carousels (Instagram, Facebook, Pinterest)
+- [x] Narrated video for Reels / TikTok (Piper + FFmpeg)
+- [x] Publish verification so a timeout is never reported as a failure
+- [ ] X, LinkedIn connectors
 - [ ] Branding overlay (logo/text on generated images)
-- [ ] Scheduling (queue posts for later)
 - [ ] TikTok

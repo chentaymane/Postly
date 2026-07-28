@@ -25,7 +25,7 @@ export async function PATCH(request, { params }) {
        pin_description = COALESCE($7, pin_description),
        destination_url = COALESCE($8, destination_url),
        updated_at = now()
-     WHERE id = $1 AND user_id = $2 AND status IN ('draft','failed')
+     WHERE id = $1 AND user_id = $2 AND status IN ('draft','failed','unconfirmed')
      RETURNING *`,
     [
       params.id, userId,

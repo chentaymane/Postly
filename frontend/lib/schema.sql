@@ -113,7 +113,9 @@ CREATE TABLE IF NOT EXISTS queued_posts (
     id                BIGSERIAL PRIMARY KEY,
     user_id           BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     platform          TEXT NOT NULL,
-    status            TEXT NOT NULL DEFAULT 'draft',  -- draft | scheduled | published | failed
+    -- draft | scheduled | published | failed | unconfirmed
+    -- "unconfirmed" means the platform never answered: the post may be live.
+    status            TEXT NOT NULL DEFAULT 'draft',
     theme             TEXT,
     tone              TEXT,
     caption           TEXT,
@@ -155,3 +157,28 @@ CREATE INDEX IF NOT EXISTS idx_post_templates_user ON post_templates (user_id);
 -- Carousel support: all slide URLs (image_url stays = first slide).
 ALTER TABLE queued_posts
     ADD COLUMN IF NOT EXISTS image_urls JSONB;
+
+-- ---------------------------------------------------------------------------
+-- Video posts. The app writes the narrated script and the scene images; the
+-- local render worker (worker/) turns them into an MP4 with Piper TTS +
+-- FFmpeg and posts the finished URL back.
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE queued_posts
+    ADD COLUMN IF NOT EXISTS format TEXT NOT NULL DEFAULT 'single';  -- single | carousel | video
+ALTER TABLE queued_posts
+    ADD COLUMN IF NOT EXISTS script JSONB;          -- [{ narration, image_prompt, image_url }]
+ALTER TABLE queued_posts
+    ADD COLUMN IF NOT EXISTS video_url TEXT;
+ALTER TABLE queued_posts
+    ADD COLUMN IF NOT EXISTS video_status TEXT;     -- pending | rendering | ready | failed
+ALTER TABLE queued_posts
+    ADD COLUMN IF NOT EXISTS video_error TEXT;
+ALTER TABLE queued_posts
+    ADD COLUMN IF NOT EXISTS render_claimed_at TIMESTAMPTZ;
+ALTER TABLE queued_posts
+    ADD COLUMN IF NOT EXISTS duration_seconds NUMERIC;
+
+-- The worker's job query: oldest unrendered video first.
+CREATE INDEX IF NOT EXISTS idx_queued_posts_render
+    ON queued_posts (video_status, render_claimed_at) WHERE format = 'video';

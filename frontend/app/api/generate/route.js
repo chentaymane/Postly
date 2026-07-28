@@ -32,7 +32,7 @@ export async function POST(request) {
   const brand = brandRows[0] || null;
 
   const postType = ['promo', 'tips', 'engage'].includes(body.postType) ? body.postType : 'promo';
-  const format = body.format === 'carousel' ? 'carousel' : 'single';
+  const format = ['carousel', 'video'].includes(body.format) ? body.format : 'single';
   const input = {
     theme,
     postType,
@@ -47,17 +47,28 @@ export async function POST(request) {
     platforms.map(async (platform) => {
       try {
         const c = await generateContent({ platform, input, brand });
+        // A video draft is only publishable once the render worker returns the
+        // MP4, so it starts life waiting for that. If the model gave us no
+        // usable script, generateContent fell back to a single image — store it
+        // as one, rather than as a video that can never render.
+        const isVideo = format === 'video' && Array.isArray(c.scenes) && c.scenes.length > 0;
+        const storedFormat = isVideo ? 'video' : format === 'video' ? 'single' : format;
         const { rows } = await query(
           `INSERT INTO queued_posts
              (user_id, platform, status, theme, tone, caption, hashtags, cta,
-              pin_title, pin_description, image_url, image_urls, destination_url)
-           VALUES ($1,$2,'draft',$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12)
+              pin_title, pin_description, image_url, image_urls, destination_url,
+              format, script, video_status)
+           VALUES ($1,$2,'draft',$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14::jsonb,$15)
            RETURNING *`,
           [
             userId, platform, input.theme, input.tone, c.caption, c.hashtags, c.cta,
-            c.pinTitle, c.pinDescription, c.imageUrl,
+            isVideo ? c.videoTitle || c.pinTitle : c.pinTitle,
+            c.pinDescription, c.imageUrl,
             JSON.stringify(c.imageUrls || [c.imageUrl]),
             input.destinationUrl || null,
+            storedFormat,
+            isVideo ? JSON.stringify(c.scenes) : null,
+            isVideo ? 'pending' : null,
           ]
         );
         return { ok: true, draft: rows[0] };

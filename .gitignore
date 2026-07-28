@@ -13,8 +13,11 @@ dist/
 build/
 .next/
 
-# n8n local runtime data (persisted in a Docker volume instead)
-.n8n/
+# Render worker: Python venv, downloaded voices, render scratch
+worker/.venv/
+worker/voices/
+worker/__pycache__/
+*.pyc
 
 # OS / editor
 .DS_Store
