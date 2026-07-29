@@ -57,6 +57,17 @@ def _vercel_blob(path: Path, name: str) -> str:
             timeout=300,
         )
     if not res.ok:
+        # A store's access mode is fixed when it is created, so a private store
+        # can never serve the public URL the social platforms need to fetch.
+        if "private store" in res.text:
+            raise HostingError(
+                "This Blob store was created with private access, and the social platforms "
+                "need a public URL to fetch the video.\n"
+                "Create a store with PUBLIC access (Vercel -> Storage -> Create -> Blob, "
+                "choose public), then put its BLOB_READ_WRITE_TOKEN in worker/.env.\n"
+                "Alternatively host the files yourself: set VIDEO_HOST=s3 (Cloudflare R2) "
+                "or VIDEO_HOST=local with a publicly reachable folder."
+            )
         raise HostingError(f"Vercel Blob upload failed (HTTP {res.status_code}): {res.text[:200]}")
     url = res.json().get("url")
     if not url:
