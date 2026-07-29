@@ -110,50 +110,14 @@ export default function SettingsPage() {
           </select>
         </div>
 
-        <h2 className="section-title">Autopilot</h2>
-        <label className="check" style={{ maxWidth: 'fit-content' }}>
-          <input type="checkbox" checked={!!b.auto_enabled}
-                 onChange={(e) => set('auto_enabled', e.target.checked)} />
-          <span>Post automatically every day</span>
-        </label>
-
-        {b.auto_enabled && (
-          <>
-            <div className="field">
-              <label>Posts per day</label>
-              <select value={b.auto_posts_per_day} onChange={(e) => setCount(e.target.value)}>
-                {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
-              </select>
-            </div>
-            <div className="field">
-              <label>Posting hours (0–23, UTC)</label>
-              <div className="times-row">
-                {b.auto_times.slice(0, b.auto_posts_per_day).map((t, i) => (
-                  <select key={i} value={t} onChange={(e) => setTime(i, e.target.value)}>
-                    {Array.from({ length: 24 }, (_, h) => {
-                      const v = `${String(h).padStart(2, '0')}:00`;
-                      return <option key={v} value={v}>{String(h).padStart(2, '0')}:00</option>;
-                    })}
-                  </select>
-                ))}
-              </div>
-              <p className="hint">Posts are generated once a day and scheduled at these hours.</p>
-            </div>
-            <div className="field">
-              <label>Platforms</label>
-              <div className="checks">
-                {AUTO_PLATFORMS.map((p) => (
-                  <label key={p} className="check">
-                    <input type="checkbox" checked={b.auto_platforms.includes(p)}
-                           onChange={() => togglePlatform(p)} />
-                    <span style={{ textTransform: 'capitalize' }}>{p}</span>
-                  </label>
-                ))}
-              </div>
-              <p className="hint">Only connected accounts are posted to.</p>
-            </div>
-          </>
-        )}
+        <h2 className="section-title">Automated posting</h2>
+        <p className="hint" style={{ marginTop: 0 }}>
+          Scheduling now lives in <a href="/automations">Automations</a>, where each rule has its
+          own content type, format, platforms and hours — and you can run one on demand.
+        </p>
+        <div>
+          <a className="btn btn-outline" href="/automations">Open Automations</a>
+        </div>
 
         <div>
           <button className="btn btn-accent" disabled={busy}>

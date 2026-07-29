@@ -763,14 +763,14 @@ export async function generateContent({ platform, input, brand }) {
   if (input.format === 'carousel' && copy.imageScenes?.length >= 2) {
     const { slides } = await generateSlides(copy.imageScenes, {
       tone: input.tone,
-      dims: IMAGE_DIMS[platform],
+      dims: imageDimsFor(platform, input.format),
     });
     const imageUrls = slides.map((s) => s.imageUrl);
     return { ...copy, imageUrl: imageUrls[0], imageUrls, subject: prompts.subject };
   }
 
   const scene = copy.imageScene || copy.imageScenes?.[0] || prompts.imagePrompt;
-  const img = await generateImage(finishImagePrompt(scene, input.tone), IMAGE_DIMS[platform]);
+  const img = await generateImage(finishImagePrompt(scene, input.tone), imageDimsFor(platform, input.format));
   return { ...copy, imageUrl: img.imageUrl, imageUrls: [img.imageUrl], subject: prompts.subject };
 }
 
@@ -928,18 +928,31 @@ export async function publishContent({ conn, platform, content, scheduledAt }) {
 // their own grid, which is what made carousel slides come back at slightly
 // different sizes (1000x1500 was rendered as 1000x1496 or 1000x1504) and made
 // Pinterest reject the set for mismatched aspect ratios.
+// Each platform's own recommended feed size. Portrait beats square on
+// Instagram (4:5 occupies more of the screen) and Pinterest ranks 2:3, so the
+// same post is generated at a different shape per destination.
 export const IMAGE_DIMS = {
-  pinterest: { width: 1024, height: 1536 },  // 2:3
-  facebook: { width: 1024, height: 1024 },   // 1:1
-  instagram: { width: 1024, height: 1024 },  // 1:1
-  x: { width: 1024, height: 576 },           // 16:9
-  linkedin: { width: 1216, height: 640 },    // 1.9:1
-  tiktok: { width: 576, height: 1024 },      // 9:16
+  pinterest: { width: 1000, height: 1500 },  // 2:3  — Pinterest's spec
+  instagram: { width: 1080, height: 1350 },  // 4:5  — portrait feed
+  facebook: { width: 1200, height: 630 },    // 1.91:1 — link/feed image
+  x: { width: 1200, height: 675 },           // 16:9
+  linkedin: { width: 1200, height: 627 },    // 1.91:1
+  tiktok: { width: 1080, height: 1920 },     // 9:16 — full screen
 };
 
-// Vertical 9:16 for the video format, whatever the destination platform.
-// The render worker upscales these frames to 1080x1920.
-export const VIDEO_DIMS = { width: 576, height: 1024 };
+// Fallback for any platform not listed above.
+export const DEFAULT_IMAGE_DIMS = { width: 1080, height: 1080 };
+
+export function imageDimsFor(platform, format) {
+  // Video frames are always vertical, whatever the destination platform.
+  if (format === 'video') return VIDEO_DIMS;
+  return IMAGE_DIMS[platform] || DEFAULT_IMAGE_DIMS;
+}
+
+// Vertical 9:16 source frames for video. The render worker scales these up to
+// 1080x1920; generating at 720p keeps generation fast without visible loss
+// after the Ken Burns crop.
+export const VIDEO_DIMS = { width: 720, height: 1280 };
 
 // ---------------------------------------------------------------------------
 // Logging
@@ -1003,7 +1016,7 @@ export async function runForPlatform({ runId, userId, platform, conn, input }) {
     return { platform, ok: false, error: e.message, stage: 'copy' };
   }
 
-  const img = await generateImage(prompts.imagePrompt, IMAGE_DIMS[platform]);
+  const img = await generateImage(prompts.imagePrompt, imageDimsFor(platform));
 
   const content = { ...copy, imageUrl: img.imageUrl, destinationUrl: input.destinationUrl || '' };
   const logCopy = {

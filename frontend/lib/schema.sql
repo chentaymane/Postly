@@ -182,3 +182,46 @@ ALTER TABLE queued_posts
 -- The worker's job query: oldest unrendered video first.
 CREATE INDEX IF NOT EXISTS idx_queued_posts_render
     ON queued_posts (video_status, render_claimed_at) WHERE format = 'video';
+
+-- ---------------------------------------------------------------------------
+-- Automations: named recurring rules. Each one decides what kind of post to
+-- make, in which format, for which platforms, at which hours — and whether it
+-- schedules straight away or drops drafts into Review for approval.
+-- Replaces the single set of auto_* columns on brand_profiles.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS automations (
+    id              BIGSERIAL PRIMARY KEY,
+    user_id         BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name            TEXT NOT NULL,
+    enabled         BOOLEAN NOT NULL DEFAULT true,
+    post_type       TEXT NOT NULL DEFAULT 'mixed',    -- promo | tips | engage | mixed
+    format          TEXT NOT NULL DEFAULT 'single',   -- single | carousel | video
+    platforms       JSONB NOT NULL DEFAULT '[]'::jsonb,
+    times           JSONB NOT NULL DEFAULT '["10:00"]'::jsonb,  -- HH:MM, UTC
+    theme           TEXT,        -- optional; falls back to the brand profile
+    tone            TEXT,
+    approval        TEXT NOT NULL DEFAULT 'review',   -- review (draft) | auto (schedule)
+    last_run_at     TIMESTAMPTZ,
+    last_run_status TEXT,        -- ok | partial | failed
+    last_run_detail TEXT,
+    run_count       INT NOT NULL DEFAULT 0,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_automations_user ON automations (user_id);
+CREATE INDEX IF NOT EXISTS idx_automations_enabled ON automations (enabled);
+
+-- Ties every generated post back to the automation that made it.
+ALTER TABLE queued_posts
+    ADD COLUMN IF NOT EXISTS automation_id BIGINT REFERENCES automations(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_queued_posts_automation ON queued_posts (automation_id);
+
+-- One-time migration of the old brand_profiles autopilot into an automation.
+INSERT INTO automations (user_id, name, enabled, post_type, format, platforms, times, tone, approval)
+SELECT bp.user_id, 'Daily autopilot', bp.auto_enabled, 'mixed', 'single',
+       bp.auto_platforms, bp.auto_times, bp.default_tone, 'auto'
+  FROM brand_profiles bp
+ WHERE bp.auto_enabled = true
+   AND NOT EXISTS (SELECT 1 FROM automations a WHERE a.user_id = bp.user_id);

@@ -6,6 +6,7 @@ const LINKS = [
   { href: '/', label: 'Connections' },
   { href: '/create', label: 'Create' },
   { href: '/review', label: 'Review' },
+  { href: '/automations', label: 'Automations' },
   { href: '/history', label: 'History' },
   { href: '/settings', label: 'Settings' },
 ];
