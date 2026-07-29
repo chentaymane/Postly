@@ -16,6 +16,7 @@ import logging
 import os
 import shutil
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -123,10 +124,33 @@ def speak(text: str, out: Path) -> None:
     raw.unlink(missing_ok=True)
 
 
-def fetch_image(url: str, out: Path) -> None:
-    res = requests.get(url, timeout=120)
-    res.raise_for_status()
-    out.write_bytes(res.content)
+def fetch_image(url: str, out: Path, attempts: int = 4) -> None:
+    """Download a scene still.
+
+    The generator serves these on demand and answers 502/429 under load, which
+    used to abandon a render half-finished. Transient failures are retried with
+    a widening pause; only a genuinely dead URL raises.
+    """
+    last = None
+    for attempt in range(attempts):
+        try:
+            res = requests.get(url, timeout=180)
+            # 5xx and 429 are worth another try; 404 and friends are not.
+            if res.status_code >= 500 or res.status_code == 429:
+                raise requests.HTTPError(f"{res.status_code} from image host", response=res)
+            res.raise_for_status()
+            if not res.content:
+                raise requests.HTTPError("empty image response")
+            out.write_bytes(res.content)
+            return
+        except (requests.RequestException, OSError) as exc:
+            last = exc
+            if attempt == attempts - 1:
+                break
+            wait = 4 * (attempt + 1)
+            log.warning("image fetch failed (%s), retrying in %ss", exc, wait)
+            time.sleep(wait)
+    raise RenderError(f"could not fetch scene image after {attempts} tries: {last}")
 
 
 # ---------------------------------------------------------------------------
