@@ -41,13 +41,36 @@ export async function POST(request, { params }) {
     );
   }
 
-  const { rowCount } = await query(
+  const { rows } = await query(
     `UPDATE queued_posts SET video_url = $2, video_status = 'ready', video_error = NULL,
             duration_seconds = $3, updated_at = now()
-      WHERE id = $1 AND format = 'video'`,
+      WHERE id = $1 AND format = 'video'
+      RETURNING *`,
     [params.id, videoUrl, Number(body.duration_seconds) || null]
   );
-  if (!rowCount) return NextResponse.json({ error: 'job not found' }, { status: 404 });
+  const post = rows[0];
+  if (!post) return NextResponse.json({ error: 'job not found' }, { status: 404 });
+
+  // A video from an auto-approval automation has been waiting only on the
+  // render. Now that the MP4 exists it goes out immediately — otherwise these
+  // drafts would pile up forever with nobody to approve them.
+  if (post.automation_id && post.status === 'draft') {
+    const { rows: autoRows } = await query(
+      'SELECT approval FROM automations WHERE id = $1',
+      [post.automation_id]
+    );
+    if (autoRows[0]?.approval === 'auto') {
+      const { publishQueuedPost } = await import('../../../../../lib/publishqueued');
+      const result = await publishQueuedPost(post);
+      return NextResponse.json({
+        ok: true,
+        video_status: 'ready',
+        published: result.ok,
+        post_status: result.status,
+        ...(result.error ? { publish_error: result.error } : {}),
+      });
+    }
+  }
 
   return NextResponse.json({ ok: true, video_status: 'ready' });
 }
