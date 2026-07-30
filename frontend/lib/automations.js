@@ -100,9 +100,20 @@ export async function runAutomation(automation, { limit = 6 } = {}) {
       try {
         const c = await generateContent({ platform, input, brand });
 
-        // Video drafts must wait for the render worker, and anything on a
-        // "review" automation waits for the user — neither can publish here.
-        const mustWait = automation.format === 'video' || automation.approval === 'review';
+        // Mirror the manual path: a "video" whose script came back unusable was
+        // rendered as a single image, so store it as one rather than as a video
+        // the worker can never render.
+        const isVideo =
+          automation.format === 'video' && Array.isArray(c.scenes) && c.scenes.length > 0;
+        const storedFormat = isVideo
+          ? 'video'
+          : automation.format === 'video'
+            ? 'single'
+            : automation.format;
+
+        // Videos wait for the render worker; "review" automations wait for the
+        // user. Neither can publish from here.
+        const mustWait = isVideo || automation.approval === 'review';
 
         let publishedId = null;
         let status = 'draft';
@@ -133,12 +144,13 @@ export async function runAutomation(automation, { limit = 6 } = {}) {
               script, video_status, destination_url, scheduled_at, published_post_id)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16,$17,$18,$19)`,
           [
-            automation.user_id, automation.id, platform, status, automation.format,
+            automation.user_id, automation.id, platform, status, storedFormat,
             input.theme, input.tone, c.caption, c.hashtags, c.cta,
-            c.pinTitle, c.pinDescription, c.imageUrl,
-            c.imageUrls ? JSON.stringify(c.imageUrls) : null,
-            c.script ? JSON.stringify(c.script) : null,
-            automation.format === 'video' ? 'pending' : null,
+            isVideo ? c.videoTitle || c.pinTitle : c.pinTitle,
+            c.pinDescription, c.imageUrl,
+            JSON.stringify(c.imageUrls || [c.imageUrl].filter(Boolean)),
+            isVideo ? JSON.stringify(c.scenes) : null,
+            isVideo ? 'pending' : null,
             input.destinationUrl || null,
             mustWait ? null : scheduledAt,
             publishedId,

@@ -1,10 +1,13 @@
-// Zernio (formerly Late) client — second aggregator, used for Pinterest,
-// which SocialAPI.ai does not offer. Docs: docs.zernio.com
+// Zernio (formerly Late) client — the primary aggregator. Docs: docs.zernio.com
+//
+// It covers every platform Postly targets except X, and unlike SocialAPI it
+// does not meter posts on the free tier (the free allowance is counted in
+// connected accounts), so it is preferred wherever it can serve a platform.
 //
 // Model: a "profile" is a workspace container; accounts connect into one.
 // Connect flow: GET /v1/connect/{platform}?profileId=..&redirect_url=..
 // -> { authUrl } -> user authorizes -> Zernio redirects back to redirect_url
-// with ?connected=pinterest&profileId=..&accountId=..&username=..
+// with ?connected=<platform>&profileId=..&accountId=..&username=..
 
 const BASE = 'https://api.zernio.com/v1';
 
@@ -12,7 +15,23 @@ export function zernioEnabled() {
   return Boolean(process.env.ZERNIO_API_KEY);
 }
 
-export const ZERNIO_PLATFORMS = new Set(['pinterest']);
+// Verified live against their API (2026-07): all of these return a real
+// authorize URL on the free tier. X/Twitter is excluded because Zernio
+// requires a payment method for it (API pass-through costs).
+export const ZERNIO_PLATFORMS = new Set([
+  'pinterest',
+  'instagram',
+  'tiktok',
+  'facebook',
+  'linkedin',
+  'threads',
+  'youtube',
+]);
+
+// Postly platform key -> Zernio platform name.
+export function toZernioPlatform(key) {
+  return key === 'x' ? 'twitter' : key;
+}
 
 async function api(path, { method = 'GET', body } = {}) {
   const res = await fetch(`${BASE}${path}`, {
@@ -93,37 +112,86 @@ export function deletePost(postId) {
 // Publishes a Pinterest pin immediately, or schedules it when `scheduledFor`
 // (ISO 8601, UTC) is given. Media is attached by URL directly: several image
 // URLs become a carousel pin, a video URL becomes a video pin.
-export async function createPinPost({
-  accountId, boardId, title, description, link, imageUrls = [], videoUrl, coverUrl, scheduledFor,
+// TikTok refuses a post whose privacy level the creator has not allowed, so
+// the allowed set is read first. Returns null when unavailable — the caller
+// then falls back to the most private option, which every account permits.
+export async function tiktokCreatorInfo(accountId) {
+  for (const path of [
+    `/accounts/${accountId}/tiktok-creator-info`,
+    `/accounts/${accountId}/creator-info`,
+  ]) {
+    try {
+      const json = await api(path);
+      const info = json.creatorInfo || json.data || json;
+      const levels = info.privacy_level_options || info.privacyLevelOptions || info.privacyLevels;
+      if (Array.isArray(levels) && levels.length) return { levels, raw: info };
+    } catch { /* try the next shape */ }
+  }
+  return null;
+}
+
+// Publishes to any Zernio-supported platform. Media attaches by URL, so no
+// upload step is needed.
+export async function createZernioPost({
+  platform, accountId, title, description, link, imageUrls = [], videoUrl, coverUrl,
+  scheduledFor, boardId,
 }) {
-  // Pinterest carousels take at most 5 slides and reject mixed aspect ratios —
-  // the generator already renders every slide at one size.
+  const zPlatform = toZernioPlatform(platform);
+
+  // Pinterest carousels cap at 5 slides; Instagram and TikTok allow more.
+  const maxSlides = platform === 'pinterest' ? 5 : 10;
   const mediaItems = videoUrl
     ? [{ type: 'video', url: videoUrl, ...(coverUrl ? { thumbnailUrl: coverUrl } : {}) }]
-    : imageUrls.slice(0, 5).map((url) => ({ type: 'image', url }));
+    : imageUrls.slice(0, maxSlides).map((url) => ({ type: 'image', url }));
   if (mediaItems.length === 0) throw new Error('nothing to publish: the post has no media');
 
-  const json = await api('/posts', {
-    method: 'POST',
-    body: {
-      content: description,
-      ...(scheduledFor
-        ? { scheduledFor, timezone: 'UTC', publishNow: false }
-        : { publishNow: true }),
-      mediaItems,
-      platforms: [
-        {
-          platform: 'pinterest',
-          accountId,
-          platformSpecificData: {
-            ...(boardId ? { boardId } : {}),
-            ...(title ? { title: title.slice(0, 100) } : {}),
-            ...(link ? { link } : {}),
-          },
-        },
-      ],
-    },
-  });
+  const platformSpecificData = {};
+  if (platform === 'pinterest') {
+    if (boardId) platformSpecificData.boardId = boardId;
+    if (title) platformSpecificData.title = title.slice(0, 100);
+    if (link) platformSpecificData.link = link;
+  } else if (platform === 'instagram') {
+    // Feed images and carousels need nothing; a single video posts as a Reel.
+    if (videoUrl) platformSpecificData.shareToFeed = true;
+    platformSpecificData.isAiGenerated = true;
+  } else if (platform === 'youtube') {
+    if (title) platformSpecificData.title = title.slice(0, 100);
+  }
+
+  const body = {
+    content: description,
+    ...(scheduledFor
+      ? { scheduledFor, timezone: 'UTC', publishNow: false }
+      : { publishNow: true }),
+    mediaItems,
+    platforms: [
+      {
+        platform: zPlatform,
+        accountId,
+        ...(Object.keys(platformSpecificData).length ? { platformSpecificData } : {}),
+      },
+    ],
+  };
+
+  // TikTok's settings sit at the top level, and the two consent flags are a
+  // legal requirement — the API rejects the post without them.
+  if (platform === 'tiktok') {
+    const info = await tiktokCreatorInfo(accountId);
+    const allowed = info?.levels || [];
+    const privacy = allowed.includes('PUBLIC_TO_EVERYONE')
+      ? 'PUBLIC_TO_EVERYONE'
+      : allowed[0] || 'SELF_ONLY';
+    body.tiktokSettings = {
+      privacy_level: privacy,
+      allow_comment: true,
+      ...(videoUrl ? { allow_duet: true, allow_stitch: true } : {}),
+      content_preview_confirmed: true,
+      express_consent_given: true,
+      is_ai_generated: true,
+    };
+  }
+
+  const json = await api('/posts', { method: 'POST', body });
   const post = json.post || json;
   const target = Array.isArray(post.platforms) ? post.platforms[0] : null;
   if (target?.status === 'failed' || post.status === 'failed') {
@@ -134,3 +202,14 @@ export async function createPinPost({
     raw: post,
   };
 }
+
+// Backwards-compatible Pinterest wrapper.
+export async function createPinPost({
+  accountId, boardId, title, description, link, imageUrls = [], videoUrl, coverUrl, scheduledFor,
+}) {
+  return createZernioPost({
+    platform: 'pinterest', accountId, boardId, title, description, link,
+    imageUrls, videoUrl, coverUrl, scheduledFor,
+  });
+}
+

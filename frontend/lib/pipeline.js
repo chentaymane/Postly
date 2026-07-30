@@ -11,7 +11,7 @@ import {
   uploadMediaFromUrl, createPost, toSocialApiPlatform,
   listRecentPosts as listRecentSocialApiPosts,
 } from './socialapi.js';
-import { createPinPost, listRecentPosts as listRecentZernioPosts } from './zernio.js';
+import { createZernioPost, listRecentPosts as listRecentZernioPosts } from './zernio.js';
 
 // ---------------------------------------------------------------------------
 // Prompts
@@ -704,17 +704,26 @@ async function publishViaAggregator(conn, content, platform, scheduledAt) {
 
 // Publishes through Zernio (Pinterest). Media is attached by URL directly.
 async function publishViaZernio(conn, content, platform, scheduledAt) {
-  if (platform !== 'pinterest') {
-    throw new Error(`Zernio publishing is only wired for Pinterest, got ${platform}`);
-  }
   const accountId = conn.extra?.zernio_account_id || conn.account_id;
   if (!accountId) throw new Error('Zernio connection is missing its account id');
-  return createPinPost({
+
+  // TikTok takes video or photos, but never a text-only post, and it has no
+  // link field — the destination lives in the caption/bio instead.
+  if (platform === 'tiktok' && !content.videoUrl && slideUrls(content).length === 0) {
+    throw new Error('TikTok posts need a video or at least one image');
+  }
+
+  // Pinterest is the only platform that carries a per-pin title and outbound
+  // link; elsewhere the caption does the work.
+  const isPinterest = platform === 'pinterest';
+
+  return createZernioPost({
+    platform,
     accountId,
-    boardId: conn.extra?.board_id || undefined,
-    title: content.pinTitle,
-    description: content.pinDescription,
-    link: content.destinationUrl || undefined,
+    boardId: isPinterest ? conn.extra?.board_id || undefined : undefined,
+    title: isPinterest ? content.pinTitle : content.videoTitle || content.pinTitle || undefined,
+    description: isPinterest ? content.pinDescription : content.fullMessage,
+    link: isPinterest ? content.destinationUrl || undefined : undefined,
     imageUrls: slideUrls(content),
     videoUrl: content.videoUrl || undefined,
     coverUrl: content.coverUrl || content.imageUrl || undefined,
