@@ -5,6 +5,17 @@
 
 import { query } from './db.js';
 import { publishContent, logPost } from './pipeline.js';
+import { appBaseUrl } from './platforms.js';
+
+// The link that actually goes out on a post: our tracker, which records the
+// click and forwards to the store. Falls back to the raw URL when the app has
+// no public base (so a local run still produces a working link).
+export function trackedLink(post) {
+  if (!post.destination_url) return '';
+  const base = appBaseUrl();
+  if (!/^https?:\/\//i.test(base)) return post.destination_url;
+  return `${base}/r/${post.id}`;
+}
 
 // Rebuilds the publishable content from a stored draft.
 export function contentFromPost(post) {
@@ -19,7 +30,7 @@ export function contentFromPost(post) {
     videoUrl: post.video_url || null,
     videoTitle: post.pin_title || post.theme || null,
     coverUrl: post.image_url || null,
-    destinationUrl: post.destination_url || '',
+    destinationUrl: trackedLink(post),
     fullMessage: [post.caption, post.cta, post.hashtags].filter(Boolean).join('\n\n'),
   };
 }

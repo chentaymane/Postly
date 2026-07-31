@@ -112,39 +112,20 @@ export async function runAutomation(automation, { limit = 6 } = {}) {
             : automation.format;
 
         // Videos wait for the render worker; "review" automations wait for the
-        // user. Neither can publish from here.
+        // user. Neither can publish yet.
         const mustWait = isVideo || automation.approval === 'review';
 
-        let publishedId = null;
-        let status = 'draft';
-        if (!mustWait) {
-          const pub = await publishContent({
-            conn,
-            platform,
-            content: { ...c, destinationUrl: input.destinationUrl },
-            scheduledAt,
-          });
-          publishedId = pub.post_id;
-          status = 'scheduled';
-          await logPost({
-            run_id: null, user_id: automation.user_id, platform, status: 'scheduled',
-            post_id: pub.post_id, error_message: null, theme: input.theme,
-            product_name: null, tone: input.tone, caption: c.caption,
-            hashtags: c.hashtags, cta: c.cta, image_url: c.imageUrl,
-            destination_url: input.destinationUrl || null,
-            raw_request: { automation_id: automation.id, scheduled_at: scheduledAt },
-            raw_response: pub.raw,
-          });
-        }
-
-        await query(
+        // The draft is always stored first: its row id is what the click
+        // tracker links to, so the outbound link can only be built afterwards.
+        const { rows: inserted } = await query(
           `INSERT INTO queued_posts
              (user_id, automation_id, platform, status, format, theme, tone, caption,
               hashtags, cta, pin_title, pin_description, image_url, image_urls,
-              script, video_status, destination_url, scheduled_at, published_post_id)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16,$17,$18,$19)`,
+              script, video_status, destination_url)
+           VALUES ($1,$2,$3,'draft',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb,$15,$16)
+           RETURNING *`,
           [
-            automation.user_id, automation.id, platform, status, storedFormat,
+            automation.user_id, automation.id, platform, storedFormat,
             input.theme, input.tone, c.caption, c.hashtags, c.cta,
             isVideo ? c.videoTitle || c.pinTitle : c.pinTitle,
             c.pinDescription, c.imageUrl,
@@ -152,12 +133,24 @@ export async function runAutomation(automation, { limit = 6 } = {}) {
             isVideo ? JSON.stringify(c.scenes) : null,
             isVideo ? 'pending' : null,
             input.destinationUrl || null,
-            mustWait ? null : scheduledAt,
-            publishedId,
           ]
         );
+        const post = inserted[0];
 
-        results.push({ platform, ok: true, status, at: mustWait ? null : scheduledAt });
+        if (mustWait) {
+          results.push({ platform, ok: true, status: 'draft', at: null });
+        } else {
+          // Same path the Review page uses, so behaviour cannot drift.
+          const { publishQueuedPost } = await import('./publishqueued.js');
+          const pub = await publishQueuedPost(post, { scheduledAt });
+          results.push({
+            platform,
+            ok: pub.ok,
+            status: pub.status,
+            at: pub.ok ? scheduledAt : null,
+            ...(pub.ok ? {} : { error: pub.error }),
+          });
+        }
       } catch (e) {
         results.push({ platform, ok: false, error: e.message });
       }

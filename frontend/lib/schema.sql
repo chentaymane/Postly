@@ -225,3 +225,24 @@ SELECT bp.user_id, 'Daily autopilot', bp.auto_enabled, 'mixed', 'single',
   FROM brand_profiles bp
  WHERE bp.auto_enabled = true
    AND NOT EXISTS (SELECT 1 FROM automations a WHERE a.user_id = bp.user_id);
+
+-- ---------------------------------------------------------------------------
+-- Click tracking. Posts link to /r/<post_id> instead of straight to the store,
+-- so every visit is attributed to the exact post and platform that earned it
+-- before being redirected on (with UTM tags for the store's own analytics).
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS link_clicks (
+    id         BIGSERIAL PRIMARY KEY,
+    post_id    BIGINT REFERENCES queued_posts(id) ON DELETE CASCADE,
+    user_id    BIGINT REFERENCES users(id) ON DELETE CASCADE,
+    platform   TEXT,
+    clicked_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    referrer   TEXT,
+    user_agent TEXT,
+    country    TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_link_clicks_user ON link_clicks (user_id, clicked_at DESC);
+CREATE INDEX IF NOT EXISTS idx_link_clicks_post ON link_clicks (post_id);
+CREATE INDEX IF NOT EXISTS idx_link_clicks_platform ON link_clicks (platform);
