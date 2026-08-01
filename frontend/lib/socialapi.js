@@ -31,16 +31,30 @@ export function toSocialApiPlatform(key) {
   return key;
 }
 
-async function api(path, { method = 'GET', body } = {}) {
-  const res = await fetch(`${BASE}${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${process.env.SOCIALAPI_KEY}`,
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(30000),
-  });
+const READ_TIMEOUT_MS = 30000;
+const PUBLISH_TIMEOUT_MS = 120000;
+
+async function api(path, { method = 'GET', body, timeoutMs = READ_TIMEOUT_MS } = {}) {
+  let res;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${process.env.SOCIALAPI_KEY}`,
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (e) {
+    // Ambiguous, not failed — the post may already be accepted upstream.
+    if (e.name === 'TimeoutError' || e.name === 'AbortError') {
+      const err = new Error(`SocialAPI did not answer within ${Math.round(timeoutMs / 1000)}s`);
+      err.unconfirmed = true;
+      throw err;
+    }
+    throw e;
+  }
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     let msg = json?.error?.message || json?.message || `SocialAPI HTTP ${res.status}`;
@@ -84,6 +98,7 @@ export function listPinterestBoards(accountId) {
 export function createPost({ accountId, text, mediaIds, platformData, scheduledAt }) {
   return api('/posts', {
     method: 'POST',
+    timeoutMs: PUBLISH_TIMEOUT_MS,
     body: {
       text,
       ...(mediaIds?.length ? { media_ids: mediaIds } : {}),

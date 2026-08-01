@@ -33,16 +33,35 @@ export function toZernioPlatform(key) {
   return key === 'x' ? 'twitter' : key;
 }
 
-async function api(path, { method = 'GET', body } = {}) {
-  const res = await fetch(`${BASE}${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${process.env.ZERNIO_API_KEY}`,
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(30000),
-  });
+// Reads are quick. Publishing is not: the aggregator downloads every image or
+// video from its own servers before handing the post to the platform, so a
+// carousel routinely needs well over half a minute.
+const READ_TIMEOUT_MS = 30000;
+const PUBLISH_TIMEOUT_MS = 120000;
+
+async function api(path, { method = 'GET', body, timeoutMs = READ_TIMEOUT_MS } = {}) {
+  let res;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      method,
+      headers: {
+        Authorization: `Bearer ${process.env.ZERNIO_API_KEY}`,
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (e) {
+    // A timeout is ambiguous, not a failure: the aggregator may already have
+    // accepted the post. Flag it so the caller can verify instead of retrying
+    // into a duplicate.
+    if (e.name === 'TimeoutError' || e.name === 'AbortError') {
+      const err = new Error(`Zernio did not answer within ${Math.round(timeoutMs / 1000)}s`);
+      err.unconfirmed = true;
+      throw err;
+    }
+    throw e;
+  }
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     const msg = json?.error?.message || json?.message || json?.error || `Zernio HTTP ${res.status}`;
@@ -191,7 +210,7 @@ export async function createZernioPost({
     };
   }
 
-  const json = await api('/posts', { method: 'POST', body });
+  const json = await api('/posts', { method: 'POST', body, timeoutMs: PUBLISH_TIMEOUT_MS });
   const post = json.post || json;
   const target = Array.isArray(post.platforms) ? post.platforms[0] : null;
   if (target?.status === 'failed' || post.status === 'failed') {

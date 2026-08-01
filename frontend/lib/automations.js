@@ -54,7 +54,10 @@ export async function runAutomation(automation, { limit = 6 } = {}) {
   const brand = brandRows[0] || null;
 
   let made = 0;
-  const dayOffset = new Date().getUTCDate();
+  // Rotate by run as well as by date. Keying on the date alone meant two runs
+  // on the same day produced byte-identical posts, which the platforms reject
+  // as duplicates.
+  const rotation = new Date().getUTCDate() + (automation.run_count || 0);
 
   for (const [i, time] of times.entries()) {
     if (made >= limit) break;
@@ -80,12 +83,12 @@ export async function runAutomation(automation, { limit = 6 } = {}) {
       // 'mixed' rotates promo/tips/engage so the feed stays varied.
       const postType =
         automation.post_type === 'mixed'
-          ? TYPE_ROTATION[(i + dayOffset) % TYPE_ROTATION.length]
+          ? TYPE_ROTATION[(i + rotation) % TYPE_ROTATION.length]
           : automation.post_type;
 
       const theme =
         automation.theme?.trim() ||
-        `${brand?.products || brand?.store_name || 'our products'} — ${ANGLES[(i + dayOffset) % ANGLES.length]}`;
+        `${brand?.products || brand?.store_name || 'our products'} — ${ANGLES[(i + rotation) % ANGLES.length]}`;
 
       const input = {
         theme,

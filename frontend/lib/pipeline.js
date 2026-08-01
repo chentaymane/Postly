@@ -392,6 +392,20 @@ export async function generateSlides(scenes, { tone, dims, model = 'flux', dropM
 export const PUBLISH_TIMEOUT_MS = 40000;
 
 // Every slide URL of a post, first one first, de-duplicated.
+// Pre-fetches media so whoever downloads it next gets a cached copy. Failures
+// are ignored: this is an optimisation, not a gate on publishing.
+async function warmAll(urls) {
+  if (!urls?.length) return;
+  await Promise.all(
+    urls.map((u) =>
+      fetch(u, { signal: AbortSignal.timeout(45000) }).then(
+        (r) => r.arrayBuffer().catch(() => null),
+        () => null
+      )
+    )
+  ).catch(() => {});
+}
+
 export function slideUrls(content) {
   const urls = content.imageUrls?.length ? content.imageUrls : [content.imageUrl];
   return Array.from(new Set(urls.filter(Boolean)));
@@ -717,12 +731,31 @@ async function publishViaZernio(conn, content, platform, scheduledAt) {
   // link; elsewhere the caption does the work.
   const isPinterest = platform === 'pinterest';
 
+  // The aggregator downloads each image itself, and the image host renders on
+  // first request. Warming the URLs here means it fetches from cache instead
+  // of waiting on a cold render — the difference between a carousel publish
+  // finishing in seconds and timing out.
+  await warmAll(slideUrls(content));
+
+  // A TikTok photo slideshow has no caption field — the content IS the title,
+  // and TikTok caps that at 90 characters. Sending the full caption is a hard
+  // rejection, so photo posts get the hook line alone.
+  const isTikTokPhotos = platform === 'tiktok' && !content.videoUrl;
+  const tiktokTitle = (content.caption || content.pinTitle || content.theme || '')
+    .split('\n')[0]
+    .trim()
+    .slice(0, 90);
+
   return createZernioPost({
     platform,
     accountId,
     boardId: isPinterest ? conn.extra?.board_id || undefined : undefined,
     title: isPinterest ? content.pinTitle : content.videoTitle || content.pinTitle || undefined,
-    description: isPinterest ? content.pinDescription : content.fullMessage,
+    description: isPinterest
+      ? content.pinDescription
+      : isTikTokPhotos
+        ? tiktokTitle
+        : content.fullMessage,
     link: isPinterest ? content.destinationUrl || undefined : undefined,
     imageUrls: slideUrls(content),
     videoUrl: content.videoUrl || undefined,
