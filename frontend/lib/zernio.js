@@ -9,6 +9,8 @@
 // -> { authUrl } -> user authorizes -> Zernio redirects back to redirect_url
 // with ?connected=<platform>&profileId=..&accountId=..&username=..
 
+import { keyFor } from './keycontext.js';
+
 const BASE = 'https://api.zernio.com/v1';
 
 export function zernioEnabled() {
@@ -45,7 +47,7 @@ async function api(path, { method = 'GET', body, timeoutMs = READ_TIMEOUT_MS } =
     res = await fetch(`${BASE}${path}`, {
       method,
       headers: {
-        Authorization: `Bearer ${process.env.ZERNIO_API_KEY}`,
+        Authorization: `Bearer ${await keyFor('zernio')}`,
         ...(body ? { 'Content-Type': 'application/json' } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,

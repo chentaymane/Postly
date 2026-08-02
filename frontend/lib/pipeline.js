@@ -7,6 +7,7 @@
 
 // Extension is explicit so plain `node` scripts can import this module too.
 import { query } from './db.js';
+import { keyFor } from './keycontext.js';
 import {
   uploadMediaFromUrl, createPost, toSocialApiPlatform,
   listRecentPosts as listRecentSocialApiPosts,
@@ -129,7 +130,7 @@ export function finishImagePrompt(scene, tone = 'warm') {
 // ---------------------------------------------------------------------------
 
 async function callGroq({ systemPrompt, userPrompt }) {
-  const key = process.env.GROQ_API_KEY;
+  const key = await keyFor('groq');
   if (!key) throw new Error('GROQ_API_KEY is not set');
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
@@ -151,7 +152,7 @@ async function callGroq({ systemPrompt, userPrompt }) {
 }
 
 async function callOpenRouter({ systemPrompt, userPrompt }) {
-  const key = process.env.OPENROUTER_API_KEY;
+  const key = await keyFor('openrouter');
   if (!key) throw new Error('OPENROUTER_API_KEY is not set');
   const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',

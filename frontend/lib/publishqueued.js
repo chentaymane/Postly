@@ -6,6 +6,8 @@
 import { query } from './db.js';
 import { publishContent, logPost } from './pipeline.js';
 import { appBaseUrl } from './platforms.js';
+import { withUserKeys } from './keycontext.js';
+import { secretForCredential } from './credentials.js';
 
 // The link that actually goes out on a post: our tracker, which records the
 // click and forwards to the store. Falls back to the raw URL when the app has
@@ -62,12 +64,15 @@ export async function publishQueuedPost(post, { scheduledAt = null } = {}) {
   const content = contentFromPost(post);
 
   try {
-    const result = await publishContent({
-      conn,
-      platform: post.platform,
-      content,
-      scheduledAt,
-    });
+    // Publish through the exact key this account was connected with —
+    // aggregators only recognise an account under its own key.
+    const kind = conn.provider === 'zernio' ? 'zernio' : conn.provider === 'socialapi' ? 'socialapi' : null;
+    const secret = kind ? await secretForCredential(conn.credential_id, kind, post.user_id) : null;
+    const result = await withUserKeys(
+      post.user_id,
+      () => publishContent({ conn, platform: post.platform, content, scheduledAt }),
+      secret && kind ? { [kind]: secret } : {}
+    );
     const newStatus = scheduledAt ? 'scheduled' : 'published';
     await query(
       `UPDATE queued_posts SET status = $2, scheduled_at = $3, published_post_id = $4,

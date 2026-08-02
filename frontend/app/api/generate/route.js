@@ -3,6 +3,7 @@ import { query } from '../../../lib/db';
 import { generateContent } from '../../../lib/pipeline';
 import { PLATFORMS } from '../../../lib/platforms';
 import { currentUserId } from '../../../lib/auth';
+import { withUserKeys } from '../../../lib/keycontext';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -43,7 +44,8 @@ export async function POST(request) {
     destinationUrl: String(body.destinationUrl || brand?.store_url || '').trim(),
   };
 
-  const drafts = await Promise.all(
+  // Generation bills the user's own Groq/OpenRouter key.
+  const drafts = await withUserKeys(userId, () => Promise.all(
     platforms.map(async (platform) => {
       try {
         const c = await generateContent({ platform, input, brand });
@@ -76,7 +78,7 @@ export async function POST(request) {
         return { ok: false, platform, error: e.message };
       }
     })
-  );
+  ));
 
   return NextResponse.json({ drafts });
 }

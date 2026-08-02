@@ -9,6 +9,7 @@ const LINKS = [
   { href: '/review', label: 'Review' },
   { href: '/automations', label: 'Automations' },
   { href: '/history', label: 'History' },
+  { href: '/settings/keys', label: 'API keys' },
   { href: '/settings', label: 'Settings' },
 ];
 

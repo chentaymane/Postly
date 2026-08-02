@@ -1,4 +1,7 @@
+import { redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 import { auth, signOut } from '../../lib/auth';
+import { query } from '../../lib/db';
 import { PostlyLogo } from '../../components/BrandIcons';
 import NavLinks from '../../components/NavLinks';
 
@@ -6,6 +9,21 @@ import NavLinks from '../../components/NavLinks';
 export default async function AppLayout({ children }) {
   const session = await auth();
   const user = session?.user;
+
+  // A brand new account has no keys, so nothing in the app can work yet —
+  // send them to the wizard instead of a row of dead buttons. Checked here so
+  // it covers every page at once.
+  if (user?.id) {
+    const path = headers().get('x-invoke-path') || headers().get('x-pathname') || '';
+    if (!path.startsWith('/welcome')) {
+      const { rows } = await query(
+        'SELECT count(*)::int AS n FROM user_credentials WHERE user_id = $1',
+        [Number(user.id)]
+      );
+      const hasEnvFallback = Boolean(process.env.GROQ_API_KEY);
+      if (rows[0]?.n === 0 && !hasEnvFallback) redirect('/welcome');
+    }
+  }
   const initial = (user?.name || user?.email || '?').trim().charAt(0).toUpperCase();
 
   async function doSignOut() {

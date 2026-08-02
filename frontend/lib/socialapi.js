@@ -5,6 +5,8 @@
 // handles the platform OAuth -> 302 back to our redirect_uri with
 // ?status=success&account_id=...
 
+import { keyFor } from './keycontext.js';
+
 const BASE = 'https://api.social-api.ai/v1';
 
 export function socialApiEnabled() {
@@ -40,7 +42,7 @@ async function api(path, { method = 'GET', body, timeoutMs = READ_TIMEOUT_MS } =
     res = await fetch(`${BASE}${path}`, {
       method,
       headers: {
-        Authorization: `Bearer ${process.env.SOCIALAPI_KEY}`,
+        Authorization: `Bearer ${await keyFor('socialapi')}`,
         ...(body ? { 'Content-Type': 'application/json' } : {}),
       },
       body: body ? JSON.stringify(body) : undefined,
@@ -147,7 +149,7 @@ export async function uploadMediaFromUrl(mediaUrl) {
   form.append('file', blob, contentType.startsWith('video/') ? 'postly-video.mp4' : 'postly-image.jpg');
   const res = await fetch(`${BASE}/media/upload`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${process.env.SOCIALAPI_KEY}` },
+    headers: { Authorization: `Bearer ${await keyFor('socialapi')}` },
     body: form,
     signal: AbortSignal.timeout(120000),
   });

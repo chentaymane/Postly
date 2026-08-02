@@ -3,6 +3,7 @@
 
 import { query } from './db.js';
 import { generateContent, publishContent, logPost } from './pipeline.js';
+import { withUserKeys } from './keycontext.js';
 
 export const POST_TYPES = ['promo', 'tips', 'engage', 'mixed'];
 export const FORMATS = ['single', 'carousel', 'video'];
@@ -101,7 +102,9 @@ export async function runAutomation(automation, { limit = 6 } = {}) {
       };
 
       try {
-        const c = await generateContent({ platform, input, brand });
+        const c = await withUserKeys(automation.user_id, () =>
+          generateContent({ platform, input, brand })
+        );
 
         // Mirror the manual path: a "video" whose script came back unusable was
         // rendered as a single image, so store it as one rather than as a video

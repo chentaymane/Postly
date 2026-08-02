@@ -246,3 +246,39 @@ CREATE TABLE IF NOT EXISTS link_clicks (
 CREATE INDEX IF NOT EXISTS idx_link_clicks_user ON link_clicks (user_id, clicked_at DESC);
 CREATE INDEX IF NOT EXISTS idx_link_clicks_post ON link_clicks (post_id);
 CREATE INDEX IF NOT EXISTS idx_link_clicks_platform ON link_clicks (platform);
+
+-- ---------------------------------------------------------------------------
+-- Bring-your-own-keys. Postly is multi-tenant, so every user supplies their
+-- own provider credentials rather than sharing the operator's. Secrets are
+-- sealed with AES-256-GCM (lib/secretbox.js) and never stored in the clear.
+--
+-- A user may hold SEVERAL keys of the same kind: aggregator free tiers cap
+-- connected accounts per key, so adding a second key adds capacity.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS user_credentials (
+    id           BIGSERIAL PRIMARY KEY,
+    user_id      BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind         TEXT NOT NULL,        -- zernio | socialapi | groq | openrouter
+    label        TEXT,                 -- user's own name for the key
+    secret       TEXT NOT NULL,        -- sealed, never plaintext
+    hint         TEXT,                 -- masked fingerprint, safe to display
+    status       TEXT NOT NULL DEFAULT 'unverified',  -- unverified | ok | invalid
+    last_error   TEXT,
+    verified_at  TIMESTAMPTZ,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_credentials_user ON user_credentials (user_id, kind);
+
+-- Which key a connection was made with: publishing must reuse the same one,
+-- and deleting a key has to make its connections unusable rather than silently
+-- publishing through somebody else's quota.
+ALTER TABLE social_connections
+    ADD COLUMN IF NOT EXISTS credential_id BIGINT
+    REFERENCES user_credentials(id) ON DELETE SET NULL;
+
+-- Onboarding progress, so the wizard knows what is still missing.
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS onboarded_at TIMESTAMPTZ;

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { query } from '../../../lib/db';
 import { publicCatalog, appBaseUrl } from '../../../lib/platforms';
+import { availableConnectors } from '../../../lib/credentials';
 import { currentUserId } from '../../../lib/auth';
 
 export const runtime = 'nodejs';
@@ -12,7 +13,8 @@ export async function GET() {
     return NextResponse.json({ error: 'not authenticated' }, { status: 401 });
   }
 
-  const platforms = publicCatalog();
+  // Which connectors this user personally holds keys for.
+  const platforms = publicCatalog(await availableConnectors(userId));
   const baseUrl = appBaseUrl();
 
   let connections = [];

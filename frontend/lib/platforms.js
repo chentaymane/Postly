@@ -94,9 +94,12 @@ import { zernioEnabled, ZERNIO_PLATFORMS } from './zernio.js';
 // posts on its free tier, whereas SocialAPI's free tier allows only 10 posts a
 // month. SocialAPI then covers what Zernio cannot (notably X), and direct
 // OAuth remains the last resort.
-export function publicCatalog() {
-  const sapi = socialApiEnabled();
-  const zernio = zernioEnabled();
+// `available` says which connectors THIS user can use — they bring their own
+// keys, so it cannot be read from the environment. Omitting it falls back to
+// the deployment's own keys, which keeps single-user setups working.
+export function publicCatalog(available = null) {
+  const sapi = available ? Boolean(available.socialapi) : socialApiEnabled();
+  const zernio = available ? Boolean(available.zernio) : zernioEnabled();
   return Object.entries(PLATFORMS).map(([key, p]) => {
     const viaZernio = zernio && ZERNIO_PLATFORMS.has(key);
     const viaSocialApi = !viaZernio && sapi && SOCIALAPI_PLATFORMS.has(key);
