@@ -861,3 +861,162 @@ video.review-img { aspect-ratio: 9 / 16; max-height: 460px; background: #000; ob
 .wizard-nav { display: flex; gap: 10px; align-items: center; margin-top: 20px; flex-wrap: wrap; }
 .mini-link { font-size: 12px; font-weight: 650; color: var(--accent-deep); white-space: nowrap; }
 .mini-link:hover { text-decoration: underline; }
+
+/* ==========================================================================
+   Interaction & motion pass
+   Per ui-ux-pro-max: every clickable thing answers on hover AND on press
+   (touch has no hover), 150-300ms with a single easing curve, and motion is
+   never the only signal. All of it collapses under prefers-reduced-motion.
+   ========================================================================== */
+
+:root {
+  --ease: cubic-bezier(0.2, 0, 0.2, 1);
+  --fast: 140ms;
+  --base: 200ms;
+}
+
+/* Press feedback: a small, layout-safe dip that works on touch. */
+.btn:active:not(:disabled) { transform: translateY(1px) scale(0.985); }
+.btn { transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease),
+                   color var(--fast) var(--ease), box-shadow var(--fast) var(--ease),
+                   transform var(--fast) var(--ease), opacity var(--fast) var(--ease); }
+
+.card, .key-card, .auto-card, .review-card, .kpi {
+  transition: box-shadow var(--base) var(--ease), transform var(--base) var(--ease),
+              border-color var(--base) var(--ease);
+}
+.kpi:hover { border-color: var(--border-strong); }
+
+.navlink, .drawer-link, .nav-dropitem, .tab, .link-btn {
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.link-btn:active, .navlink:active { opacity: 0.7; }
+
+/* Content arriving should settle, not snap. */
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.review-card, .auto-card, .key-card, .sched-row, .history-item { animation: rise var(--base) var(--ease) both; }
+.toast { animation: rise var(--base) var(--ease) both; }
+
+/* ------------------------------------------------------------ Navigation -- */
+
+.nav-desktop { display: flex; align-items: center; gap: 4px; }
+.nav-burger { display: none; }
+
+.nav-menu { position: relative; }
+.nav-more {
+  background: none; border: none; cursor: pointer; font-family: inherit;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.chev { transition: transform var(--fast) var(--ease); }
+.chev.up { transform: rotate(180deg); }
+
+.nav-dropdown {
+  position: absolute; right: 0; top: calc(100% + 8px);
+  min-width: 190px; z-index: 60;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow-lg);
+  padding: 6px; display: flex; flex-direction: column;
+  animation: rise var(--fast) var(--ease) both;
+}
+.nav-dropitem {
+  padding: 9px 12px; border-radius: var(--radius-sm);
+  font-size: 14px; color: var(--text-soft); min-height: 40px;
+  display: flex; align-items: center;
+}
+.nav-dropitem:hover { background: var(--surface-2); color: var(--text); }
+.nav-dropitem.active { background: var(--accent-soft); color: var(--accent-deep); font-weight: 600; }
+
+/* Mobile drawer */
+.drawer-scrim {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(23, 26, 9, 0.45);
+  display: flex; justify-content: flex-end;
+  animation: fade var(--fast) var(--ease) both;
+}
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slidein { from { transform: translateX(100%); } to { transform: none; } }
+.drawer {
+  width: min(84vw, 300px); height: 100%;
+  background: var(--surface); border-left: 1px solid var(--border);
+  padding: 14px; display: flex; flex-direction: column; gap: 4px;
+  animation: slidein var(--base) var(--ease) both;
+  overflow-y: auto;
+}
+.drawer-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 8px 12px; border-bottom: 1px solid var(--border); margin-bottom: 8px;
+}
+.drawer-title { font-size: 13px; font-weight: 700; text-transform: uppercase;
+                letter-spacing: 0.06em; color: var(--text-dim); }
+.drawer-close {
+  appearance: none; background: none; border: none; cursor: pointer;
+  font-size: 26px; line-height: 1; color: var(--text-dim);
+  width: 44px; height: 44px; border-radius: var(--radius-sm);
+}
+.drawer-close:hover { background: var(--surface-2); color: var(--text); }
+.drawer-link {
+  padding: 13px 12px; border-radius: var(--radius-sm);
+  font-size: 15px; font-weight: 500; color: var(--text-soft);
+  min-height: 48px; display: flex; align-items: center;
+}
+.drawer-link:active { background: var(--surface-2); }
+.drawer-link.active { background: var(--accent-soft); color: var(--accent-deep); font-weight: 650; }
+
+/* --------------------------------------------------------------- Mobile --- */
+
+@media (max-width: 860px) {
+  .nav-desktop { display: none; }
+  .nav-burger {
+    display: inline-flex; flex-direction: column; justify-content: center; gap: 5px;
+    width: 44px; height: 44px; padding: 0 11px;
+    background: none; border: none; cursor: pointer; border-radius: var(--radius-sm);
+  }
+  .nav-burger span { display: block; height: 2px; background: var(--text); border-radius: 2px; }
+  .nav-burger:active { background: var(--surface-2); }
+  .user-chip { padding-left: 0; margin-left: 0; border-left: none; }
+  .user-email { display: none; }
+}
+
+@media (max-width: 640px) {
+  .container { padding: 24px 16px 72px; }
+  .page-head { margin-bottom: 22px; }
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .kpi { padding: 13px 14px; }
+  .kpi-value { font-size: 24px; }
+  .head-row { flex-direction: column; align-items: stretch; }
+  .head-row .btn { width: 100%; }
+  /* Touch targets and full-width actions beat cramped rows on a phone. */
+  .review-actions .btn, .auto-actions .btn, .wizard-nav .btn { flex: 1 1 auto; }
+  .schedule-group { width: 100%; }
+  .schedule-group input, .schedule-group select { flex: 1; }
+  .sched-row { flex-wrap: wrap; }
+  .sched-caption { flex-basis: 100%; order: 3; }
+  .key-head { flex-direction: column; }
+  .key-row { gap: 8px; }
+  .key-actions { margin-left: 0; }
+  .tabs { overflow-x: auto; }
+  .bar-row { grid-template-columns: 92px 1fr 36px; }
+}
+
+/* The reduced-motion contract: nothing above may move for users who ask. */
+@media (prefers-reduced-motion: reduce) {
+  .review-card, .auto-card, .key-card, .sched-row, .history-item,
+  .toast, .drawer, .drawer-scrim, .nav-dropdown { animation: none !important; }
+  .btn:active:not(:disabled) { transform: none; }
+}
+
+/* A grid/flex child defaults to min-width:auto, so it refuses to shrink below
+   its content and pushes the page sideways instead of scrolling inside its own
+   box. The chart is 520px wide by design, so every ancestor between it and the
+   page must be allowed to shrink. */
+.panel, .two-col > *, .chart-wrap { min-width: 0; }
+.chart-wrap { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+/* Text buttons ("check", "delete", "Sign out") are ~18px tall, which is fine
+   for a cursor but not for a thumb. On touch they get a padded hit area
+   without changing how they look. */
+@media (pointer: coarse) {
+  .link-btn { padding: 13px 4px; min-height: 44px; display: inline-flex; align-items: center; }
+  .key-actions { gap: 18px; }
+  .navlink, .nav-dropitem { min-height: 44px; display: flex; align-items: center; }
+}
