@@ -259,7 +259,7 @@ CREATE INDEX IF NOT EXISTS idx_link_clicks_platform ON link_clicks (platform);
 CREATE TABLE IF NOT EXISTS user_credentials (
     id           BIGSERIAL PRIMARY KEY,
     user_id      BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    kind         TEXT NOT NULL,        -- zernio | socialapi | groq | openrouter
+    kind         TEXT NOT NULL,        -- zernio | socialapi | groq | openai | gemini | anthropic
     label        TEXT,                 -- user's own name for the key
     secret       TEXT NOT NULL,        -- sealed, never plaintext
     hint         TEXT,                 -- masked fingerprint, safe to display

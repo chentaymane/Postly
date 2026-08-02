@@ -62,7 +62,7 @@ export default function PrivacyPage() {
         Only the text needed to generate your content is sent — never your credentials.
       </p>
       <ul>
-        <li><strong>Groq</strong> and, as a fallback, <strong>OpenRouter</strong> — generate the written copy.</li>
+        <li>The <strong>AI provider you configure</strong> (Groq, OpenAI, Google Gemini or Anthropic) — generates the written copy.</li>
         <li><strong>Pollinations.ai</strong> — generates the images.</li>
         <li>
           <strong>The social platform you connect</strong> (for example Pinterest) — receives

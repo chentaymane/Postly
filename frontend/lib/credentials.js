@@ -61,19 +61,11 @@ export const CREDENTIAL_KINDS = {
     placeholder: 'sk-ant-...',
     defaultModel: 'claude-sonnet-4-5',
   },
-  openrouter: {
-    label: 'OpenRouter',
-    purpose: 'generate',
-    blurb: 'One key for hundreds of models, including free ones.',
-    signupUrl: 'https://openrouter.ai/keys',
-    placeholder: 'sk-or-...',
-    defaultModel: 'meta-llama/llama-3.3-70b-instruct:free',
-  },
 };
 
 // Generation providers, in the order they are tried. The first one the user
 // holds a key for writes the copy; the rest are fallbacks.
-export const WRITER_KINDS = ['groq', 'openai', 'gemini', 'anthropic', 'openrouter'];
+export const WRITER_KINDS = ['groq', 'openai', 'gemini', 'anthropic'];
 
 // Env fallback per kind, so the deployment owner needs no setup.
 const ENV_FALLBACK = {
@@ -83,7 +75,6 @@ const ENV_FALLBACK = {
   openai: 'OPENAI_API_KEY',
   gemini: 'GEMINI_API_KEY',
   anthropic: 'ANTHROPIC_API_KEY',
-  openrouter: 'OPENROUTER_API_KEY',
 };
 
 function envKey(kind) {
@@ -246,13 +237,6 @@ export async function verifySecret(kind, secret) {
         headers: { Authorization: `Bearer ${secret}` }, signal: timeout,
       });
       if (!r.ok) return { ok: false, error: `Groq rejected the key (HTTP ${r.status})` };
-      return { ok: true };
-    }
-    if (kind === 'openrouter') {
-      const r = await fetch('https://openrouter.ai/api/v1/models', {
-        headers: { Authorization: `Bearer ${secret}` }, signal: timeout,
-      });
-      if (!r.ok) return { ok: false, error: `OpenRouter rejected the key (HTTP ${r.status})` };
       return { ok: true };
     }
     if (kind === 'openai') {

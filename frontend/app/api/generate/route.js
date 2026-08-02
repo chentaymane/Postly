@@ -44,7 +44,7 @@ export async function POST(request) {
     destinationUrl: String(body.destinationUrl || brand?.store_url || '').trim(),
   };
 
-  // Generation bills the user's own Groq/OpenRouter key.
+  // Generation bills the user's own AI key.
   const drafts = await withUserKeys(userId, () => Promise.all(
     platforms.map(async (platform) => {
       try {

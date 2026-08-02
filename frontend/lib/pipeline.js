@@ -130,7 +130,7 @@ export function finishImagePrompt(scene, tone = 'warm') {
 //
 // Bring your own writer: whichever provider the user holds a key for writes
 // the copy. Most of them speak the OpenAI chat-completions dialect, so one
-// caller covers Groq, OpenAI, OpenRouter and anything else compatible;
+// caller covers Groq, OpenAI and anything else compatible;
 // Gemini and Anthropic have their own shapes and get small adapters.
 // ---------------------------------------------------------------------------
 
@@ -148,12 +148,6 @@ const WRITERS = {
     dialect: 'openai',
     jsonMode: true,
   },
-  openrouter: {
-    url: 'https://openrouter.ai/api/v1/chat/completions',
-    model: () => process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-70b-instruct:free',
-    dialect: 'openai',
-    jsonMode: false,   // free models on OpenRouter often reject response_format
-  },
   gemini: {
     model: () => process.env.GEMINI_MODEL || 'gemini-2.0-flash',
     dialect: 'gemini',
@@ -166,7 +160,7 @@ const WRITERS = {
 
 // The order providers are tried in. The first one with a key wins; the rest
 // are fallbacks, so a rate-limited provider does not stop a post going out.
-export const WRITER_ORDER = ['groq', 'openai', 'gemini', 'anthropic', 'openrouter'];
+export const WRITER_ORDER = ['groq', 'openai', 'gemini', 'anthropic'];
 
 async function callWriter(kind, { systemPrompt, userPrompt }) {
   const spec = WRITERS[kind];
@@ -323,7 +317,7 @@ export async function generateCopy(prompts, subject) {
 
   if (errors.length === 0) {
     throw new Error(
-      'no AI writer configured — add a Groq, OpenAI, Gemini, Anthropic or OpenRouter key in Settings → API keys'
+      'no AI writer configured — add a Groq, OpenAI, Gemini or Anthropic key in Settings → API keys'
     );
   }
   throw new Error(`copy generation failed (${errors.join(' | ')})`);

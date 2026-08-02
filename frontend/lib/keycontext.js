@@ -13,11 +13,15 @@ import { resolveSecret } from './credentials.js';
 
 const storage = new AsyncLocalStorage();
 
+// Used when there is no user in scope (a cron tick, a script). With a user,
+// resolution goes through credentials.js, which knows the same names.
 const ENV_FALLBACK = {
   zernio: 'ZERNIO_API_KEY',
   socialapi: 'SOCIALAPI_KEY',
   groq: 'GROQ_API_KEY',
-  openrouter: 'OPENROUTER_API_KEY',
+  openai: 'OPENAI_API_KEY',
+  gemini: 'GEMINI_API_KEY',
+  anthropic: 'ANTHROPIC_API_KEY',
 };
 
 // Runs `fn` with this user's keys in scope. `overrides` pins a specific secret

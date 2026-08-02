@@ -46,7 +46,7 @@ export default function WelcomePage() {
       .then((d) => d?.brand && setBrand((b) => ({ ...b, ...d.brand })));
   }, []);
 
-  const hasWriter = creds.some((c) => ['groq', 'openrouter'].includes(c.kind));
+  const hasWriter = creds.some((c) => ['groq', 'openai', 'gemini', 'anthropic'].includes(c.kind));
   const hasConnector = creds.some((c) => ['zernio', 'socialapi'].includes(c.kind));
   const hasAccount = conns.length > 0;
   const done = [hasWriter, hasConnector, hasAccount, Boolean(brand.store_name)];
@@ -90,7 +90,7 @@ export default function WelcomePage() {
               Postly uses your own AI key, so your usage is yours. <strong>Groq is free</strong> and
               takes about a minute to sign up for.
             </p>
-            <KeyManager filter={['groq', 'openrouter']} onChange={setCreds} />
+            <KeyManager filter={['groq', 'openai', 'gemini', 'anthropic']} onChange={setCreds} />
             <div className="wizard-nav">
               <button className="btn btn-accent" disabled={!hasWriter} onClick={() => setStep(1)}>
                 Continue

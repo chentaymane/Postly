@@ -38,9 +38,9 @@ function Keys() {
       <section className="panel">
         <p className="panel-title">Write the content</p>
         <p className="hint" style={{ marginTop: 0, marginBottom: 16 }}>
-          Groq is free and fast. Add OpenRouter if you would rather use a paid model.
+          Groq is free and fast. Or bring your own ChatGPT, Gemini or Claude key.
         </p>
-        <KeyManager filter={['groq', 'openrouter']} />
+        <KeyManager filter={['groq', 'openai', 'gemini', 'anthropic']} />
       </section>
     </>
   );
