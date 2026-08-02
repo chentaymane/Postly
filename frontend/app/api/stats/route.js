@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { query } from '../../../lib/db';
 import { currentUserId } from '../../../lib/auth';
+import { reconcileUser } from '../../../lib/reconcile';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -10,11 +11,19 @@ export async function GET() {
   const userId = await currentUserId();
   if (!userId) return NextResponse.json({ error: 'not authenticated' }, { status: 401 });
 
+  // Refresh what the platforms actually did before reporting any figures —
+  // otherwise the dashboard counts requests we sent, not posts that exist.
+  try {
+    await reconcileUser(userId, { limit: 15 });
+  } catch { /* stale numbers beat a broken dashboard */ }
+
   const [totals, byPlatform, daily, clicksByPlatform, topPosts, autos, upcoming, recent] =
     await Promise.all([
       query(
         `SELECT
            count(*) FILTER (WHERE status = 'published')   AS published,
+           count(*) FILTER (WHERE remote_status = 'published') AS confirmed,
+           count(*) FILTER (WHERE platform_post_url IS NOT NULL) AS with_link,
            count(*) FILTER (WHERE status = 'scheduled')   AS scheduled,
            count(*) FILTER (WHERE status = 'draft')       AS drafts,
            count(*) FILTER (WHERE status = 'failed')      AS failed,
@@ -78,7 +87,8 @@ export async function GET() {
         [userId]
       ),
       query(
-        `SELECT id, platform, status, theme, pin_title, image_url, format, updated_at
+        `SELECT id, platform, status, theme, pin_title, image_url, format, updated_at,
+                platform_post_url, remote_status, error_message
            FROM queued_posts WHERE user_id = $1
           ORDER BY updated_at DESC LIMIT 6`,
         [userId]
@@ -91,6 +101,8 @@ export async function GET() {
   return NextResponse.json({
     totals: {
       published: num(t.published),
+      confirmed: num(t.confirmed),
+      withLink: num(t.with_link),
       scheduled: num(t.scheduled),
       drafts: num(t.drafts),
       failed: num(t.failed),

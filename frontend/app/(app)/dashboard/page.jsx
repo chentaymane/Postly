@@ -124,9 +124,12 @@ export default function DashboardPage() {
       </div>
 
       <div className="kpi-grid">
-        <Kpi label="Live posts" value={t.published + t.scheduled}
-             sub={`${t.published} published · ${t.scheduled} scheduled`} />
+        <Kpi label="Confirmed live" value={t.confirmed}
+             sub={t.confirmed === t.published
+               ? 'verified with the platform'
+               : `${t.published - t.confirmed} awaiting confirmation`} />
         <Kpi label="Link clicks" value={t.clicks} sub="tracked from your posts" tone="accent" />
+        <Kpi label="Scheduled" value={t.scheduled} sub="queued to go out" />
         <Kpi label="Awaiting review" value={t.drafts}
              sub={t.drafts > 0 ? 'in Review' : 'nothing waiting'} />
         <Kpi label="Automations" value={`${activeAutos}/${d.automations.length}`}
@@ -135,6 +138,13 @@ export default function DashboardPage() {
              sub={t.unconfirmed > 0 ? `${t.unconfirmed} unconfirmed` : 'publish errors'}
              tone={t.failed + t.unconfirmed > 0 ? 'danger' : undefined} />
       </div>
+
+      {t.published > t.confirmed && (
+        <div className="notice warn">
+          {t.published - t.confirmed} post(s) were accepted by the platform but not yet
+          confirmed as live. Figures here only count posts the platform has confirmed.
+        </div>
+      )}
 
       <section className="panel">
         <p className="panel-title">Last 14 days</p>
@@ -206,13 +216,19 @@ export default function DashboardPage() {
           <div className="mini-list">
             {d.recent.map((p) => (
               <div className="mini-row" key={p.id}>
-                <span className={`pill ${p.status === 'published' || p.status === 'scheduled' ? 'connected' : p.status === 'failed' ? 'failed' : 'disconnected'}`}>
-                  <span className="dot" />{p.status}
+                <span className={`pill ${p.remote_status === 'published' ? 'connected' : p.status === 'scheduled' ? 'soon' : p.status === 'failed' ? 'failed' : 'disconnected'}`}>
+                  <span className="dot" />
+                  {p.remote_status === 'published' ? 'live' : p.status}
                 </span>
                 <span className="platform-chip" style={{ background: PLATFORM_COLORS[p.platform] }}>
                   <PlatformIcon platform={p.platform} size={12} /> {p.platform}
                 </span>
                 <span className="mini-text">{p.pin_title || p.theme}</span>
+                {/* A real link is the only honest proof a post exists. */}
+                {p.platform_post_url && (
+                  <a className="mini-link" href={p.platform_post_url}
+                     target="_blank" rel="noreferrer">view ↗</a>
+                )}
               </div>
             ))}
           </div>

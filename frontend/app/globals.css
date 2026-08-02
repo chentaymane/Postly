@@ -859,3 +859,5 @@ video.review-img { aspect-ratio: 9 / 16; max-height: 460px; background: #000; ob
 .step-blurb { display: block; font-size: 11.5px; color: var(--text-dim); margin-top: 2px; }
 .wizard-panel { padding: 24px; }
 .wizard-nav { display: flex; gap: 10px; align-items: center; margin-top: 20px; flex-wrap: wrap; }
+.mini-link { font-size: 12px; font-weight: 650; color: var(--accent-deep); white-space: nowrap; }
+.mini-link:hover { text-decoration: underline; }

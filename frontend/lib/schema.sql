@@ -282,3 +282,13 @@ ALTER TABLE social_connections
 -- Onboarding progress, so the wizard knows what is still missing.
 ALTER TABLE users
     ADD COLUMN IF NOT EXISTS onboarded_at TIMESTAMPTZ;
+
+-- Real publish outcome, read back from the aggregator rather than assumed.
+-- The API accepting a post is not the same as the platform showing it, so the
+-- dashboard must count confirmed posts, not requests we sent.
+ALTER TABLE queued_posts
+    ADD COLUMN IF NOT EXISTS platform_post_url TEXT;
+ALTER TABLE queued_posts
+    ADD COLUMN IF NOT EXISTS remote_status TEXT;      -- pending | published | failed
+ALTER TABLE queued_posts
+    ADD COLUMN IF NOT EXISTS reconciled_at TIMESTAMPTZ;
