@@ -126,50 +126,119 @@ export function finishImagePrompt(scene, tone = 'warm') {
 }
 
 // ---------------------------------------------------------------------------
-// Copy generation: Groq primary, OpenRouter fallback
+// Copy generation.
+//
+// Bring your own writer: whichever provider the user holds a key for writes
+// the copy. Most of them speak the OpenAI chat-completions dialect, so one
+// caller covers Groq, OpenAI, OpenRouter and anything else compatible;
+// Gemini and Anthropic have their own shapes and get small adapters.
 // ---------------------------------------------------------------------------
 
-async function callGroq({ systemPrompt, userPrompt }) {
-  const key = await keyFor('groq');
-  if (!key) throw new Error('GROQ_API_KEY is not set');
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
-      temperature: 0.8,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-    }),
-    signal: AbortSignal.timeout(30000),
-  });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json?.error?.message || `Groq HTTP ${res.status}`);
-  return json.choices?.[0]?.message?.content || '';
-}
+// model env overrides let a deployment pin a model without code changes.
+const WRITERS = {
+  groq: {
+    url: 'https://api.groq.com/openai/v1/chat/completions',
+    model: () => process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+    dialect: 'openai',
+    jsonMode: true,
+  },
+  openai: {
+    url: 'https://api.openai.com/v1/chat/completions',
+    model: () => process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    dialect: 'openai',
+    jsonMode: true,
+  },
+  openrouter: {
+    url: 'https://openrouter.ai/api/v1/chat/completions',
+    model: () => process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-70b-instruct:free',
+    dialect: 'openai',
+    jsonMode: false,   // free models on OpenRouter often reject response_format
+  },
+  gemini: {
+    model: () => process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+    dialect: 'gemini',
+  },
+  anthropic: {
+    model: () => process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5',
+    dialect: 'anthropic',
+  },
+};
 
-async function callOpenRouter({ systemPrompt, userPrompt }) {
-  const key = await keyFor('openrouter');
-  if (!key) throw new Error('OPENROUTER_API_KEY is not set');
-  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-70b-instruct:free',
-      temperature: 0.8,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-    }),
-    signal: AbortSignal.timeout(40000),
-  });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json?.error?.message || `OpenRouter HTTP ${res.status}`);
-  return json.choices?.[0]?.message?.content || '';
+// The order providers are tried in. The first one with a key wins; the rest
+// are fallbacks, so a rate-limited provider does not stop a post going out.
+export const WRITER_ORDER = ['groq', 'openai', 'gemini', 'anthropic', 'openrouter'];
+
+async function callWriter(kind, { systemPrompt, userPrompt }) {
+  const spec = WRITERS[kind];
+  if (!spec) throw new Error(`unknown writer: ${kind}`);
+  const key = await keyFor(kind);
+  if (!key) throw new Error(`no ${kind} key`);
+  const model = spec.model();
+
+  if (spec.dialect === 'openai') {
+    const res = await fetch(spec.url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        temperature: 0.8,
+        ...(spec.jsonMode ? { response_format: { type: 'json_object' } } : {}),
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+      }),
+      signal: AbortSignal.timeout(45000),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json?.error?.message || `${kind} HTTP ${res.status}`);
+    return json.choices?.[0]?.message?.content || '';
+  }
+
+  if (spec.dialect === 'gemini') {
+    // Gemini takes the key as a query parameter and calls the system prompt
+    // "system_instruction".
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: systemPrompt }] },
+          contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+          generationConfig: { temperature: 0.8, responseMimeType: 'application/json' },
+        }),
+        signal: AbortSignal.timeout(45000),
+      }
+    );
+    const json = await res.json();
+    if (!res.ok) throw new Error(json?.error?.message || `Gemini HTTP ${res.status}`);
+    return json.candidates?.[0]?.content?.parts?.map((p) => p.text).join('') || '';
+  }
+
+  if (spec.dialect === 'anthropic') {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 2048,
+        temperature: 0.8,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userPrompt }],
+      }),
+      signal: AbortSignal.timeout(45000),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json?.error?.message || `Anthropic HTTP ${res.status}`);
+    return json.content?.map((c) => c.text || '').join('') || '';
+  }
+
+  throw new Error(`unsupported dialect for ${kind}`);
 }
 
 function parseCopy(raw, fallbackSubject) {
@@ -236,15 +305,26 @@ function speakable(text) {
 
 export async function generateCopy(prompts, subject) {
   const errors = [];
-  for (const [name, fn] of [['groq', callGroq], ['openrouter', callOpenRouter]]) {
+  const skipped = [];
+
+  for (const kind of WRITER_ORDER) {
+    // Skip providers this user has no key for, rather than counting them as
+    // failures — otherwise the error message is mostly noise.
+    if (!(await keyFor(kind))) { skipped.push(kind); continue; }
     try {
-      const raw = await fn(prompts);
+      const raw = await callWriter(kind, prompts);
       const copy = parseCopy(raw, subject);
       if (!copy.caption) throw new Error('empty caption returned');
-      return { ...copy, provider: name };
+      return { ...copy, provider: kind };
     } catch (e) {
-      errors.push(`${name}: ${e.message}`);
+      errors.push(`${kind}: ${e.message}`);
     }
+  }
+
+  if (errors.length === 0) {
+    throw new Error(
+      'no AI writer configured — add a Groq, OpenAI, Gemini, Anthropic or OpenRouter key in Settings → API keys'
+    );
   }
   throw new Error(`copy generation failed (${errors.join(' | ')})`);
 }

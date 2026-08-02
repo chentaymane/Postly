@@ -32,24 +32,57 @@ export const CREDENTIAL_KINDS = {
   groq: {
     label: 'Groq',
     purpose: 'generate',
-    blurb: 'Writes the captions. Free tier is generous and fast.',
+    blurb: 'Free and very fast. The recommended starting point.',
     signupUrl: 'https://console.groq.com/keys',
     placeholder: 'gsk_...',
+    defaultModel: 'llama-3.3-70b-versatile',
+  },
+  openai: {
+    label: 'OpenAI (ChatGPT)',
+    purpose: 'generate',
+    blurb: 'Use your own ChatGPT API key — GPT models write the captions.',
+    signupUrl: 'https://platform.openai.com/api-keys',
+    placeholder: 'sk-...',
+    defaultModel: 'gpt-4o-mini',
+  },
+  gemini: {
+    label: 'Google Gemini',
+    purpose: 'generate',
+    blurb: 'Google\'s models, with a free tier of their own.',
+    signupUrl: 'https://aistudio.google.com/apikey',
+    placeholder: 'AIza...',
+    defaultModel: 'gemini-2.0-flash',
+  },
+  anthropic: {
+    label: 'Anthropic (Claude)',
+    purpose: 'generate',
+    blurb: 'Claude models, strong at natural-sounding copy.',
+    signupUrl: 'https://console.anthropic.com/settings/keys',
+    placeholder: 'sk-ant-...',
+    defaultModel: 'claude-sonnet-4-5',
   },
   openrouter: {
     label: 'OpenRouter',
     purpose: 'generate',
-    blurb: 'Fallback writer, and the way to use a paid model (GPT, Claude, Kimi…).',
+    blurb: 'One key for hundreds of models, including free ones.',
     signupUrl: 'https://openrouter.ai/keys',
     placeholder: 'sk-or-...',
+    defaultModel: 'meta-llama/llama-3.3-70b-instruct:free',
   },
 };
+
+// Generation providers, in the order they are tried. The first one the user
+// holds a key for writes the copy; the rest are fallbacks.
+export const WRITER_KINDS = ['groq', 'openai', 'gemini', 'anthropic', 'openrouter'];
 
 // Env fallback per kind, so the deployment owner needs no setup.
 const ENV_FALLBACK = {
   zernio: 'ZERNIO_API_KEY',
   socialapi: 'SOCIALAPI_KEY',
   groq: 'GROQ_API_KEY',
+  openai: 'OPENAI_API_KEY',
+  gemini: 'GEMINI_API_KEY',
+  anthropic: 'ANTHROPIC_API_KEY',
   openrouter: 'OPENROUTER_API_KEY',
 };
 
@@ -220,6 +253,30 @@ export async function verifySecret(kind, secret) {
         headers: { Authorization: `Bearer ${secret}` }, signal: timeout,
       });
       if (!r.ok) return { ok: false, error: `OpenRouter rejected the key (HTTP ${r.status})` };
+      return { ok: true };
+    }
+    if (kind === 'openai') {
+      const r = await fetch('https://api.openai.com/v1/models', {
+        headers: { Authorization: `Bearer ${secret}` }, signal: timeout,
+      });
+      if (!r.ok) return { ok: false, error: `OpenAI rejected the key (HTTP ${r.status})` };
+      return { ok: true };
+    }
+    if (kind === 'gemini') {
+      // Gemini authenticates with a query parameter rather than a header.
+      const r = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(secret)}`,
+        { signal: timeout }
+      );
+      if (!r.ok) return { ok: false, error: `Gemini rejected the key (HTTP ${r.status})` };
+      return { ok: true };
+    }
+    if (kind === 'anthropic') {
+      const r = await fetch('https://api.anthropic.com/v1/models', {
+        headers: { 'x-api-key': secret, 'anthropic-version': '2023-06-01' },
+        signal: timeout,
+      });
+      if (!r.ok) return { ok: false, error: `Anthropic rejected the key (HTTP ${r.status})` };
       return { ok: true };
     }
     return { ok: false, error: `unknown credential kind: ${kind}` };

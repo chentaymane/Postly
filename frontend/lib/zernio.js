@@ -143,8 +143,11 @@ export async function tiktokCreatorInfo(accountId) {
   ]) {
     try {
       const json = await api(path);
-      const info = json.creatorInfo || json.data || json;
-      const levels = info.privacy_level_options || info.privacyLevelOptions || info.privacyLevels;
+      // These paths do not exist on Zernio today: the API host answers with an
+      // HTML page, which parses into something object-shaped but meaningless.
+      // Only a real array of levels counts as an answer.
+      const info = json?.creatorInfo || json?.data || json;
+      const levels = info?.privacy_level_options || info?.privacyLevelOptions || info?.privacyLevels;
       if (Array.isArray(levels) && levels.length) return { levels, raw: info };
     } catch { /* try the next shape */ }
   }
@@ -199,9 +202,14 @@ export async function createZernioPost({
   if (platform === 'tiktok') {
     const info = await tiktokCreatorInfo(accountId);
     const allowed = info?.levels || [];
-    const privacy = allowed.includes('PUBLIC_TO_EVERYONE')
-      ? 'PUBLIC_TO_EVERYONE'
-      : allowed[0] || 'SELF_ONLY';
+    // Default to public. Falling back to SELF_ONLY when the allowed set is
+    // unknown published every post privately — the account owner saw nothing
+    // and the post looked like it had failed. If TikTok genuinely disallows
+    // public posting for this account it rejects the call, which is a visible
+    // error the user can act on, unlike a silently invisible post.
+    const privacy = allowed.length
+      ? (allowed.includes('PUBLIC_TO_EVERYONE') ? 'PUBLIC_TO_EVERYONE' : allowed[0])
+      : 'PUBLIC_TO_EVERYONE';
     body.tiktokSettings = {
       privacy_level: privacy,
       allow_comment: true,
