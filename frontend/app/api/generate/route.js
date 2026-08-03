@@ -4,6 +4,7 @@ import { generateContent } from '../../../lib/pipeline';
 import { PLATFORMS } from '../../../lib/platforms';
 import { currentUserId } from '../../../lib/auth';
 import { withUserKeys } from '../../../lib/keycontext';
+import { requestRender } from '../../../lib/renderdispatch';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -79,6 +80,12 @@ export async function POST(request) {
       }
     })
   ));
+
+  // Start the renderer now rather than leaving the video sitting until the
+  // next scheduled run. Best-effort: the drafts exist either way.
+  if (drafts.some((d) => d.ok && d.draft?.format === 'video')) {
+    await requestRender();
+  }
 
   return NextResponse.json({ drafts });
 }

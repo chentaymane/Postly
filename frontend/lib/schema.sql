@@ -184,6 +184,14 @@ ALTER TABLE queued_posts
 ALTER TABLE queued_posts
     ADD COLUMN IF NOT EXISTS duration_seconds NUMERIC;
 
+-- How many times a renderer has picked this draft up. Without it a job that
+-- kills the renderer every time (a dead image URL, a script FFmpeg chokes on)
+-- is handed out again every 15 minutes forever, and the draft says "Rendering"
+-- for the rest of its life. A capped count lets a transient failure be retried
+-- and a hopeless one be reported.
+ALTER TABLE queued_posts
+    ADD COLUMN IF NOT EXISTS render_attempts INT NOT NULL DEFAULT 0;
+
 -- The worker's job query: oldest unrendered video first.
 CREATE INDEX IF NOT EXISTS idx_queued_posts_render
     ON queued_posts (video_status, render_claimed_at) WHERE format = 'video';

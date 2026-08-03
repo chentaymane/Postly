@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { currentUserId } from '../../../lib/auth';
 import { readHeartbeat, runSchedulerTick, LEAD_MS } from '../../../lib/scheduler';
+import { readWorkerHeartbeat } from '../../../lib/renderworker';
 import { query } from '../../../lib/db';
 
 export const runtime = 'nodejs';
@@ -21,6 +22,11 @@ export async function GET() {
 
   const beat = await readHeartbeat();
   const ageMs = beat?.at ? Date.now() - new Date(beat.at).getTime() : null;
+
+  // The renderer is a separate driver with its own schedule, and it failing is
+  // indistinguishable from a slow render unless it is reported on its own.
+  const renderBeat = await readWorkerHeartbeat();
+  const renderAgeMs = renderBeat?.at ? Date.now() - new Date(renderBeat.at).getTime() : null;
 
   const { rows: pending } = await query(
     `SELECT
@@ -61,6 +67,16 @@ export async function GET() {
     retrying: Number(p.retrying || 0),
     blocked: Number(p.blocked || 0),
     awaitingRender: Number(p.awaiting_render || 0),
+    // The render workflow runs every 10 minutes and a render itself takes a
+    // few, so "nothing for 45 minutes" means it has genuinely stopped rather
+    // than that it is busy.
+    renderWorker: {
+      lastSeenAt: renderBeat?.at || null,
+      ageMs: renderAgeMs,
+      neverRan: !renderBeat,
+      healthy: renderAgeMs !== null && renderAgeMs < 45 * 60000,
+      source: renderBeat?.source || null,
+    },
   });
 }
 

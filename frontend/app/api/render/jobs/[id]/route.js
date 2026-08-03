@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { query } from '../../../../../lib/db';
-import { workerAuthorized } from '../../../../../lib/renderworker';
+import { workerAuthorized, MAX_RENDER_ATTEMPTS } from '../../../../../lib/renderworker';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,14 +22,28 @@ export async function POST(request, { params }) {
 
   const videoUrl = String(body.video_url || '').trim();
   if (!videoUrl) {
+    // A render failure is usually bad luck rather than a bad job — an image
+    // host answering 502, a runner evicted mid-encode. Put the draft back in
+    // the queue while it still has attempts left, and only call it failed once
+    // they run out, so one flaky minute does not cost the whole video.
     const message = String(body.error || 'rendering failed').slice(0, 500);
-    const { rowCount } = await query(
-      `UPDATE queued_posts SET video_status = 'failed', video_error = $2, updated_at = now()
-        WHERE id = $1 AND format = 'video'`,
-      [params.id, message]
+    const { rows } = await query(
+      `UPDATE queued_posts
+          SET video_status = CASE WHEN render_attempts < $3 THEN 'pending' ELSE 'failed' END,
+              video_error  = $2,
+              render_claimed_at = NULL,
+              updated_at   = now()
+        WHERE id = $1 AND format = 'video'
+        RETURNING video_status, render_attempts`,
+      [params.id, message, MAX_RENDER_ATTEMPTS]
     );
-    if (!rowCount) return NextResponse.json({ error: 'job not found' }, { status: 404 });
-    return NextResponse.json({ ok: true, video_status: 'failed' });
+    if (!rows[0]) return NextResponse.json({ error: 'job not found' }, { status: 404 });
+    return NextResponse.json({
+      ok: true,
+      video_status: rows[0].video_status,
+      attempts: rows[0].render_attempts,
+      willRetry: rows[0].video_status === 'pending',
+    });
   }
 
   // Platforms fetch the file themselves, so it has to be publicly reachable

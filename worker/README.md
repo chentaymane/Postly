@@ -1,8 +1,39 @@
 # Postly render worker
 
-Turns video drafts into finished vertical MP4s. It runs on your own machine
-because the two tools that do the work — Piper and FFmpeg — cannot run on the
+Turns video drafts into finished vertical MP4s. It runs outside the app because
+the two tools that do the work — Piper and FFmpeg — cannot run on the
 serverless tier the app is deployed to.
+
+**It normally runs on GitHub Actions**, not on your machine — see
+`.github/workflows/render.yml`. That is the setup to use: a video only posts
+once it has rendered, and a worker on your own PC renders nothing while that PC
+is asleep. Running it locally, as described below, is for developing on the
+renderer itself or for rendering a backlog by hand.
+
+## On GitHub Actions
+
+Two triggers:
+
+- **On demand** — the app calls the workflow the moment a video draft is
+  created, so rendering starts within seconds. Needs `GITHUB_DISPATCH_TOKEN`
+  and `GITHUB_REPOSITORY` in the app's environment.
+- **Every 30 minutes** — a safety net for drafts created while a dispatch
+  failed. It asks the app whether anything is waiting before installing
+  anything, so an empty queue costs seconds rather than minutes.
+
+Add under **Settings → Secrets and variables → Actions**:
+
+| Kind     | Name                    | Value                                     |
+|----------|-------------------------|-------------------------------------------|
+| secret   | `RENDER_WORKER_TOKEN`   | same value as the app's env var           |
+| secret   | `BLOB_READ_WRITE_TOKEN` | Vercel → Storage → Blob, **public** store |
+| variable | `POSTLY_URL`            | your app URL (optional)                   |
+
+A draft is offered to a renderer at most three times. After that it is marked
+failed with the reason, so a video can no longer sit at "Rendering" forever —
+which is what used to happen whenever no renderer was running at all.
+
+## How a video is made
 
 Nothing here costs money:
 
@@ -28,7 +59,7 @@ with the narration burned in as captions. Scene lengths follow the voice: a
 scene lasts exactly as long as its line takes to say, so picture and audio can
 never drift apart.
 
-## Setup
+## Running it locally instead
 
 ```bash
 sudo apt install ffmpeg                 # or: brew install ffmpeg

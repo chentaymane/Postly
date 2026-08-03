@@ -17,7 +17,7 @@ function relative(iso) {
   return diff >= 0 ? `in ${unit}` : `${unit} ago`;
 }
 
-function DraftCard({ post, onChanged }) {
+function DraftCard({ post, onChanged, renderWorker }) {
   const [edit, setEdit] = useState({
     caption: post.caption || '', hashtags: post.hashtags || '', cta: post.cta || '',
     pin_title: post.pin_title || '', pin_description: post.pin_description || '',
@@ -31,6 +31,13 @@ function DraftCard({ post, onChanged }) {
   const isVideo = post.format === 'video';
   const videoReady = Boolean(post.video_url);
   const rendering = isVideo && !videoReady && post.video_status !== 'failed';
+  // "Queued" and "being rendered right now" are different situations with
+  // different fixes, and showing both as "Rendering…" is what let a video with
+  // nothing working on it spin forever without saying so.
+  const beingRendered = rendering && post.video_status === 'rendering';
+  // Nothing has collected a job recently, so a queued video is not going to
+  // move on its own however long the page is left open.
+  const rendererDown = rendering && renderWorker && !renderWorker.healthy;
   const unconfirmed = post.status === 'unconfirmed';
   const willRetry = post.status === 'failed' && post.failure_kind === 'transient' && post.next_attempt_at;
   const slides = Array.isArray(post.image_urls) ? post.image_urls : [];
@@ -118,7 +125,13 @@ function DraftCard({ post, onChanged }) {
             <span className="pill soon">{slides.length} slides</span>
           ) : null}
           {rendering ? (
-            <span className="pill warn"><span className="spinner" />Rendering…</span>
+            rendererDown ? (
+              <span className="pill danger"><span className="dot" />Renderer offline</span>
+            ) : (
+              <span className="pill warn">
+                <span className="spinner" />{beingRendered ? 'Rendering…' : 'Queued to render'}
+              </span>
+            )
           ) : unconfirmed ? (
             <span className="pill warn"><span className="dot" />Unconfirmed</span>
           ) : willRetry ? (
@@ -156,13 +169,28 @@ function DraftCard({ post, onChanged }) {
           </div>
         ) : null}
         {rendering && (
-          <div className="notice">
-            <span className="notice-icon"><span className="spinner" /></span>
-            <span className="notice-body">
-              Waiting for the render worker to voice and edit this video. It appears here
-              automatically when the MP4 is ready.
-            </span>
-          </div>
+          rendererDown ? (
+            <div className="notice err">
+              <span className="notice-icon"><NavIcon name="alert" size={16} /></span>
+              <span className="notice-body">
+                Nothing is rendering videos{renderWorker.neverRan
+                  ? ' — no renderer has ever checked in'
+                  : `, last seen ${relative(renderWorker.lastSeenAt)}`}.
+                This video will stay here until one runs. Start the <strong>render</strong>{' '}
+                workflow in GitHub Actions, or run <code>python render_worker.py --once</code>{' '}
+                in <code>worker/</code>.
+              </span>
+            </div>
+          ) : (
+            <div className="notice">
+              <span className="notice-icon"><span className="spinner" /></span>
+              <span className="notice-body">
+                {beingRendered
+                  ? 'Being voiced and edited now. It appears here automatically when the MP4 is ready.'
+                  : 'Queued for rendering — the renderer picks it up on its next run (within ~10 minutes).'}
+              </span>
+            </div>
+          )
         )}
         {isVideo && post.video_status === 'failed' && post.video_error && (
           <div className="notice err">
@@ -307,6 +335,7 @@ export default function ReviewPage() {
   const [tab, setTab] = useState('drafts');
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
+  const [renderWorker, setRenderWorker] = useState(null);
   const router = useRouter();
 
   const load = useCallback((message) => {
@@ -328,6 +357,20 @@ export default function ReviewPage() {
     const t = setInterval(load, rendering ? 15000 : 60000);
     return () => clearInterval(t);
   }, [rendering, retrying, load]);
+
+  // Whether a renderer is alive at all. Polling for a video that nothing is
+  // working on is how a draft used to spin indefinitely with no explanation,
+  // so the cards need to know as soon as there is a video outstanding.
+  useEffect(() => {
+    if (!rendering) return undefined;
+    const check = () => fetch('/api/scheduler', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.renderWorker) setRenderWorker(d.renderWorker); })
+      .catch(() => {});
+    check();
+    const t = setInterval(check, 60000);
+    return () => clearInterval(t);
+  }, [rendering]);
 
   const drafts = posts.filter((p) => ['draft', 'failed', 'unconfirmed'].includes(p.status));
   const scheduled = posts.filter((p) => p.status === 'scheduled' && p.scheduled_at);
@@ -370,7 +413,9 @@ export default function ReviewPage() {
           </div>
         ) : (
           <div className="review-list">
-            {drafts.map((p) => <DraftCard key={p.id} post={p} onChanged={load} />)}
+            {drafts.map((p) => (
+              <DraftCard key={p.id} post={p} onChanged={load} renderWorker={renderWorker} />
+            ))}
           </div>
         )
       ) : scheduled.length === 0 ? (

@@ -1,0 +1,134 @@
+# Renders Postly's video drafts into MP4s.
+#
+# Rendering needs Piper (voice) and FFmpeg (editing), neither of which can run
+# on the serverless tier the app is deployed to. It used to run on the user's
+# own PC, which meant videos only rendered while that machine happened to be
+# awake — and a video that never renders never posts. A GitHub runner has both
+# tools, is free, and is already what drives the scheduler.
+#
+# Runs are triggered two ways:
+#
+#   * on demand, the moment a video draft is created (lib/renderdispatch.js
+#     calls the workflow_dispatch API). This is the one that matters: a
+#     scheduled video is generated only minutes before its slot.
+#   * on a timer, as a safety net for drafts created while a dispatch failed.
+#     It is deliberately slow — this repo is private, so every scheduled run
+#     spends free Actions minutes whether or not there is work — and it exits
+#     in seconds when the queue is empty.
+#
+# Setup, once:
+#   Settings -> Secrets and variables -> Actions
+#     secret   RENDER_WORKER_TOKEN     same value as the app's env var
+#     secret   BLOB_READ_WRITE_TOKEN   Vercel -> Storage -> Blob (PUBLIC store)
+#     variable POSTLY_URL              https://postly48.vercel.app  (optional)
+#
+#   On the app (Vercel env vars), for on-demand triggering:
+#     GITHUB_DISPATCH_TOKEN   a fine-grained PAT with Actions: read+write
+#     GITHUB_REPOSITORY       chentaymane/Postly
+
+name: render
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '*/30 * * * *'
+
+# One renderer at a time. Two concurrent runs would race for the same job, and
+# the loser wastes minutes rendering something already claimed.
+concurrency:
+  group: postly-render
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    # Generous: a six-scene video takes a few minutes, and the queue is drained
+    # in one run. Anything past this is stuck, and the claim timeout hands the
+    # job to the next run.
+    timeout-minutes: 20
+
+    env:
+      POSTLY_APP_URL: ${{ vars.POSTLY_URL || 'https://postly48.vercel.app' }}
+      RENDER_WORKER_TOKEN: ${{ secrets.RENDER_WORKER_TOKEN }}
+      PIPER_VOICE: ${{ github.workspace }}/worker/voices/en_US-ryan-medium.onnx
+      # The runner has plenty of CPU, so spend it on a better-looking video
+      # than the "weak laptop" defaults aim for.
+      X264_PRESET: medium
+      KENBURNS_SCALE: '2.0'
+      VIDEO_HOST: blob
+      BLOB_READ_WRITE_TOKEN: ${{ secrets.BLOB_READ_WRITE_TOKEN }}
+
+    steps:
+      - name: Check the secrets are present
+        run: |
+          missing=
+          [ -z "$RENDER_WORKER_TOKEN" ] && missing="$missing RENDER_WORKER_TOKEN"
+          [ -z "$BLOB_READ_WRITE_TOKEN" ] && missing="$missing BLOB_READ_WRITE_TOKEN"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing secrets:$missing — add them under Settings > Secrets and variables > Actions"
+            exit 1
+          fi
+
+      # Ask before installing anything. An empty queue costs seconds instead of
+      # the two or three minutes the toolchain takes to set up.
+      - name: Is there anything to render?
+        id: peek
+        run: |
+          waiting=$(curl --silent --show-error --location --max-time 30 \
+                      --header "Authorization: Bearer $RENDER_WORKER_TOKEN" \
+                      --header "x-worker-source: github-actions" \
+                      "$POSTLY_APP_URL/api/render/jobs?peek=1" \
+                    | grep -o '"waiting":[0-9]*' | cut -d: -f2)
+          waiting=${waiting:-0}
+          echo "waiting=$waiting" >> "$GITHUB_OUTPUT"
+          echo "$waiting video(s) waiting"
+
+      - uses: actions/checkout@v4
+        if: steps.peek.outputs.waiting != '0'
+
+      - name: Install FFmpeg
+        if: steps.peek.outputs.waiting != '0'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          ffmpeg -version | head -1
+
+      - uses: actions/setup-python@v5
+        if: steps.peek.outputs.waiting != '0'
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: worker/requirements.txt
+
+      - name: Install the worker
+        if: steps.peek.outputs.waiting != '0'
+        run: pip install -q -r worker/requirements.txt
+
+      # ~60 MB, and it never changes. Downloading it on every run would be a
+      # slower and ruder use of the voice host than caching it.
+      - name: Cache the Piper voice
+        if: steps.peek.outputs.waiting != '0'
+        id: voice
+        uses: actions/cache@v4
+        with:
+          path: worker/voices
+          key: piper-en_US-ryan-medium-v1
+
+      - name: Download the Piper voice
+        if: steps.peek.outputs.waiting != '0' && steps.voice.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p worker/voices
+          base=https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/medium
+          curl -sSL --retry 3 -o worker/voices/en_US-ryan-medium.onnx      "$base/en_US-ryan-medium.onnx"
+          curl -sSL --retry 3 -o worker/voices/en_US-ryan-medium.onnx.json "$base/en_US-ryan-medium.onnx.json"
+
+      - name: Render everything waiting
+        if: steps.peek.outputs.waiting != '0'
+        working-directory: worker
+        env:
+          WORKER_SOURCE: github-actions
+        run: python render_worker.py --once
+
+      - name: Nothing to do
+        if: steps.peek.outputs.waiting == '0'
+        run: echo "Render queue is empty."

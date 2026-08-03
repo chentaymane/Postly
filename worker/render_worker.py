@@ -22,7 +22,7 @@ from pathlib import Path
 import requests
 from apscheduler.schedulers.blocking import BlockingScheduler
 
-from hosting import HostingError, upload_video
+from hosting import upload_video
 from renderer import RenderError, check_tools, render_job
 
 try:  # optional: a .env next to this file, so nothing has to be exported
@@ -44,13 +44,16 @@ TOKEN = os.getenv("RENDER_WORKER_TOKEN", "")
 POLL_SECONDS = int(os.getenv("POLL_SECONDS", "60"))
 BATCH = int(os.getenv("BATCH", "1"))
 KEEP_FILES = os.getenv("KEEP_RENDER_FILES", "").lower() in ("1", "true", "yes")
+# Which machine is doing the rendering. The app shows this, so "my videos are
+# stuck" can be answered with where the renderer last ran rather than a guess.
+SOURCE = os.getenv("WORKER_SOURCE", "local")
 
 
 def api(method: str, path: str, **kw) -> dict:
     res = requests.request(
         method,
         f"{APP_URL}{path}",
-        headers={"Authorization": f"Bearer {TOKEN}"},
+        headers={"Authorization": f"Bearer {TOKEN}", "x-worker-source": SOURCE},
         timeout=kw.pop("timeout", 60),
         **kw,
     )
@@ -78,9 +81,11 @@ def handle(job: dict) -> None:
         url = upload_video(mp4, f"postly-{job_id}.mp4")
         report(job_id, video_url=url, duration=duration)
         log.info("job %s ready: %s", job_id, url)
-    except (RenderError, HostingError, requests.RequestException) as e:
-        # Report the failure so the draft stops saying "rendering" forever and
-        # the person can see why on the Review page.
+    except Exception as e:                           # noqa: BLE001
+        # Every failure is reported, not just the ones we predicted: an
+        # unexpected exception used to escape here and leave the draft claimed,
+        # which is exactly the state that says "rendering" forever. The app
+        # decides from the attempt count whether to retry or give up.
         log.error("job %s failed: %s", job_id, e)
         try:
             report(job_id, error=str(e))
@@ -93,12 +98,25 @@ def handle(job: dict) -> None:
             shutil.rmtree(workdir, ignore_errors=True)
 
 
-def tick() -> int:
+def tick(seen: set | None = None) -> int:
+    """Claims and renders a batch. Returns how many jobs were handled.
+
+    `seen` collects the ids already attempted in this process. A job that fails
+    goes back in the queue for another try later, so without it a single
+    draining run would burn every retry the job had within a few seconds —
+    against exactly the transient condition the retries exist to outlast.
+    """
     try:
         jobs = claim_jobs()
     except Exception as e:                            # noqa: BLE001 - keep polling
         log.error("could not fetch jobs: %s", e)
         return 0
+    if seen is not None:
+        fresh = [j for j in jobs if j["id"] not in seen]
+        if not fresh:
+            return 0
+        seen.update(j["id"] for j in fresh)
+        jobs = fresh
     for job in jobs:
         handle(job)
     return len(jobs)
@@ -118,10 +136,12 @@ def main() -> int:
         log.error("%s", e)
         return 1
 
-    log.info("worker ready — app %s, polling every %ss", APP_URL, POLL_SECONDS)
+    log.info("worker ready — app %s, source %s, polling every %ss", APP_URL, SOURCE, POLL_SECONDS)
     if args.once:
-        while tick():
+        seen: set = set()
+        while tick(seen):
             pass
+        log.info("drained %d job(s)", len(seen))
         return 0
 
     tick()  # don't make the first job wait a full interval

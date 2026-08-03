@@ -11,6 +11,7 @@ import { generateContent } from './pipeline.js';
 import { withUserKeys } from './keycontext.js';
 import { platformSupportsFormat, formatMismatchReason } from './platforms.js';
 import { dueSlots, nextRunAt as slotNextRunAt, safeTimezone, normaliseTimes } from './schedule.js';
+import { requestRender } from './renderdispatch.js';
 
 export const POST_TYPES = ['promo', 'tips', 'engage', 'mixed'];
 export const FORMATS = ['single', 'carousel', 'video'];
@@ -197,6 +198,10 @@ async function runSlot(automation, { platform, slot, brand, index, rotation }) {
   const post = filled[0];
 
   if (mustWait) {
+    // A video generated six minutes before its slot has to start rendering
+    // immediately to have any chance of going out near its time; waiting for
+    // the renderer's own timer is what made scheduled videos hours late.
+    if (isVideo) await requestRender();
     return {
       platform, slot: slot.key, ok: true,
       status: isVideo && automation.approval === 'auto' ? 'rendering' : 'draft',
