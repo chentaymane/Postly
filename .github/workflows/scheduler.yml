@@ -1,0 +1,64 @@
+# Drives Postly's scheduler tick.
+#
+# Vercel's cron cannot do this on the Hobby plan: it accepts only a daily
+# expression there, and a daily tick cannot deliver a post at 10:00. So the
+# real cadence comes from here — GitHub's scheduler is free, already has the
+# repo, and five minutes is its finest granularity, which is exactly what the
+# tick wants.
+#
+# GitHub runs scheduled workflows on a best-effort basis and delays them under
+# load, sometimes by 10-20 minutes. That is survivable precisely because the
+# tick catches up missed slots rather than losing them — see the automation's
+# "If a run is missed" setting.
+#
+# Setup, once:
+#   Settings -> Secrets and variables -> Actions
+#     secret   CRON_SECRET   the same value as the Vercel env var
+#     variable POSTLY_URL    https://postly48.vercel.app   (optional)
+
+name: scheduler
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:        # lets you run one by hand from the Actions tab
+
+# A slow tick must not have a second one stacked on top of it.
+concurrency:
+  group: postly-scheduler
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Ping the scheduler
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          POSTLY_URL: ${{ vars.POSTLY_URL || 'https://postly48.vercel.app' }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET is not set — add it under Settings > Secrets and variables > Actions"
+            exit 1
+          fi
+
+          # The secret goes in a header, never the URL: query strings show up in
+          # logs and proxy records.
+          code=$(curl --silent --show-error --location \
+                      --max-time 300 \
+                      --output response.json \
+                      --write-out '%{http_code}' \
+                      --header "Authorization: Bearer $CRON_SECRET" \
+                      "$POSTLY_URL/api/cron/autopilot")
+
+          echo "HTTP $code"
+          cat response.json || true
+          echo
+
+          # A failed tick is worth a red run: silence is how a scheduler stops
+          # without anyone noticing.
+          if [ "$code" != "200" ]; then
+            echo "::error::Scheduler tick returned HTTP $code"
+            exit 1
+          fi

@@ -37,9 +37,11 @@ export async function GET() {
   return NextResponse.json({
     lastTickAt: beat?.at || null,
     ageMs,
-    // Ticks should arrive every 5 minutes; three missed in a row is a problem
-    // worth telling the user about rather than a slow minute.
-    healthy: ageMs !== null && ageMs < 20 * 60000,
+    // Ticks are asked for every 5 minutes, but GitHub delays scheduled
+    // workflows under load — often by 10-15 minutes. The threshold sits past
+    // that so a normal delay does not cry wolf, while a scheduler that has
+    // actually stopped still shows up within half an hour.
+    healthy: ageMs !== null && ageMs < 25 * 60000,
     neverRan: !beat,
     last: beat ? { generated: beat.generated, delivered: beat.delivered, failed: beat.failed, ms: beat.ms } : null,
     leadMinutes: Math.round(LEAD_MS / 60000),

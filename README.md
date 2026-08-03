@@ -168,18 +168,31 @@ Two things make it safe to run often, late, twice, or by hand:
 
 ### Driving the tick
 
-`vercel.json` asks for `*/5 * * * *`. **Vercel's Hobby plan triggers crons only
-once a day** whatever the expression says, so on that plan the cron alone cannot
-deliver a post at 10:00. Options, best first:
+**Vercel's Hobby plan only accepts a daily cron expression** — a sub-daily one
+does not degrade, it fails the whole deployment. `vercel.json` therefore asks
+for `0 6 * * *`, which on Hobby is a once-a-day backstop and nothing more.
 
-| How | Setup |
-|-----|-------|
-| **Vercel Pro** | Nothing — the 5-minute schedule is honoured |
-| **External scheduler** | Point [cron-job.org](https://cron-job.org) (free) or a GitHub Action at `https://<your-app>/api/cron/autopilot?key=$CRON_SECRET` every 5 minutes |
-| **An open tab** | The app pings the scheduler itself while somebody has it open — a fallback, not a plan |
+The real cadence comes from **`.github/workflows/scheduler.yml`**, which pings
+the tick every 5 minutes for free. Set it up once:
+
+> Settings → Secrets and variables → Actions
+> - secret **`CRON_SECRET`** — the same value as the Vercel env var
+> - variable **`POSTLY_URL`** — your deployed URL (optional; defaults to the current one)
+
+GitHub delays scheduled workflows under load, sometimes by 10–20 minutes. That
+is survivable because the tick catches up missed slots instead of losing them —
+it is not survivable with a once-a-day cron, which is the whole point.
+
+| Driver | Cadence | Notes |
+|--------|---------|-------|
+| **GitHub Actions** (set up above) | ~5 min | Free. Disabled automatically after 60 days of repo inactivity |
+| **Vercel cron** | daily | Backstop. Becomes a real 5-min cron on Pro (`*/5 * * * *`) |
+| [cron-job.org](https://cron-job.org) | 1 min | Free alternative if GitHub's delays annoy you |
+| An open tab | ~4 min | The app pings the scheduler itself — a safety net, not a plan |
 
 The secret is accepted as an `Authorization: Bearer` header, an `x-cron-secret`
-header, or a `?key=` query parameter, so any scheduler can drive it.
+header, or a `?key=` query parameter, so any scheduler can drive it. Prefer a
+header: query strings end up in logs.
 
 **Automations → the health bar** shows when the tick last ran. If that number
 grows past a few minutes, posts are going out late and the cron is the reason.

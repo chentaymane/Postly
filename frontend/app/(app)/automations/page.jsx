@@ -542,8 +542,9 @@ function SchedulerHealth({ health, onKick, kicking }) {
         ) : (
           <>
             <strong>Last tick was {mins} minutes ago.</strong> Scheduled posts go out late while
-            this is behind — point a scheduler at <code>/api/cron/autopilot</code> if it keeps
-            drifting.
+            this is behind. Missed slots are still caught up, but if the gap keeps growing check
+            that the <code>scheduler</code> GitHub Action is enabled and its{' '}
+            <code>CRON_SECRET</code> matches.
           </>
         )}
       </span>
