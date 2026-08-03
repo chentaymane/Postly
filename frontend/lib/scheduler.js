@@ -243,7 +243,12 @@ export async function readHeartbeat() {
 
 // One full tick. `budgetMs` must stay under the route's own maxDuration.
 // `dryRun` reports what the tick would do and changes nothing.
-export async function runSchedulerTick({ now = new Date(), budgetMs = 240000, dryRun = false } = {}) {
+// `source` records which driver fired it — a tick from an open browser tab and
+// a tick from a real cron look identical in the heartbeat otherwise, and the
+// difference decides whether closing the tab stops the posting.
+export async function runSchedulerTick({
+  now = new Date(), budgetMs = 240000, dryRun = false, source = 'unknown',
+} = {}) {
   const startedAt = Date.now();
   const deadline = startedAt + budgetMs;
 
@@ -276,6 +281,7 @@ export async function runSchedulerTick({ now = new Date(), budgetMs = 240000, dr
   const reconciled = await reconcileRecent({ deadline });
 
   const summary = {
+    source,
     swept,
     automations: automations.length,
     generated: automations.reduce((n, r) => n + (r.generated || 0), 0),

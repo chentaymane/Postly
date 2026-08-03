@@ -43,6 +43,10 @@ export async function GET() {
     // actually stopped still shows up within half an hour.
     healthy: ageMs !== null && ageMs < 25 * 60000,
     neverRan: !beat,
+    // Which driver last fired it. "browser-tab" means the posting stops the
+    // moment this page is closed — worth saying out loud rather than letting a
+    // green health bar imply a real scheduler exists.
+    source: beat?.source || null,
     last: beat ? { generated: beat.generated, delivered: beat.delivered, failed: beat.failed, ms: beat.ms } : null,
     leadMinutes: Math.round(LEAD_MS / 60000),
     overdue: Number(p.overdue || 0),
@@ -69,7 +73,7 @@ export async function POST(request) {
   }
 
   try {
-    const result = await runSchedulerTick({ budgetMs: 95000 });
+    const result = await runSchedulerTick({ budgetMs: 95000, source: 'browser-tab' });
     return NextResponse.json(result);
   } catch (e) {
     return NextResponse.json({ ok: false, error: e.message }, { status: 500 });

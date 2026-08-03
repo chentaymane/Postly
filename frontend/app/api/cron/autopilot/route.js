@@ -30,10 +30,25 @@ async function tick(request) {
   if (!authorized(request)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
+  // Which driver this was. Vercel labels its own cron requests; GitHub's runner
+  // and a hand-run curl are told apart by user agent. Recorded so the app can
+  // say whether a real scheduler is driving this or only an open browser tab.
+  const url = new URL(request.url);
+  const ua = request.headers.get('user-agent') || '';
+  const source =
+    url.searchParams.get('source')
+    || (ua.includes('vercel-cron') ? 'vercel-cron'
+      : ua.includes('curl') ? 'external-cron'
+        : 'external');
+
+  // A dry run answers "is this wired up correctly" without generating a word
+  // or publishing anything — the only safe way to test against live accounts.
+  const dryRun = url.searchParams.get('dry') === '1';
+
   try {
     // Comfortably inside maxDuration, so the tick reports what it did rather
     // than being killed with the work half done and no record of it.
-    const result = await runSchedulerTick({ budgetMs: 240000 });
+    const result = await runSchedulerTick({ budgetMs: 240000, dryRun, source });
     return NextResponse.json(result);
   } catch (e) {
     return NextResponse.json({ ok: false, error: e.message }, { status: 500 });

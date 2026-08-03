@@ -528,6 +528,33 @@ function SchedulerHealth({ health, onKick, kicking }) {
   }
 
   const mins = Math.round((health.ageMs || 0) / 60000);
+
+  // A tab-driven tick is not a scheduler. It looks identical in every other
+  // respect, so the one case that must never read as healthy is the one where
+  // closing this page stops the posting.
+  if (health.healthy && health.source === 'browser-tab') {
+    return (
+      <div className="health down">
+        <span className="health-dot" />
+        <span className="health-text">
+          <strong>Only this browser tab is driving the scheduler.</strong> Posts stop going out
+          when you close it. Enable the <code>scheduler</code> GitHub Action so it runs without you.
+        </span>
+        <button className="btn btn-outline btn-sm" onClick={onKick} disabled={kicking}>
+          {kicking ? <span className="spinner" /> : 'Run now'}
+        </button>
+      </div>
+    );
+  }
+
+  const SOURCE_LABEL = {
+    'github-actions': 'GitHub Actions',
+    'vercel-cron': 'the Vercel cron',
+    'external-cron': 'your cron',
+    'external': 'an external scheduler',
+    'browser-tab': 'a browser tab',
+  };
+
   return (
     <div className={`health ${health.healthy ? 'up' : 'down'}`}>
       <span className="health-dot" />
@@ -535,6 +562,7 @@ function SchedulerHealth({ health, onKick, kicking }) {
         {health.healthy ? (
           <>
             Scheduler ran <strong>{mins < 1 ? 'just now' : `${mins} min ago`}</strong>
+            {health.source && <> via {SOURCE_LABEL[health.source] || health.source}</>}
             {health.upcoming > 0 && <> · <strong>{health.upcoming}</strong> post{health.upcoming === 1 ? '' : 's'} queued</>}
             {health.retrying > 0 && <> · <strong>{health.retrying}</strong> retrying</>}
             {health.blocked > 0 && <> · <strong className="err-text">{health.blocked}</strong> need attention</>}

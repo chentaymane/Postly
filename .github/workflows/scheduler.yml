@@ -50,7 +50,7 @@ jobs:
                       --output response.json \
                       --write-out '%{http_code}' \
                       --header "Authorization: Bearer $CRON_SECRET" \
-                      "$POSTLY_URL/api/cron/autopilot")
+                      "$POSTLY_URL/api/cron/autopilot?source=github-actions")
 
           echo "HTTP $code"
           cat response.json || true
