@@ -9,6 +9,7 @@
 import { query } from './db.js';
 import { generateContent } from './pipeline.js';
 import { withUserKeys } from './keycontext.js';
+import { platformSupportsFormat, formatMismatchReason } from './platforms.js';
 import { dueSlots, nextRunAt as slotNextRunAt, safeTimezone, normaliseTimes } from './schedule.js';
 
 export const POST_TYPES = ['promo', 'tips', 'engage', 'mixed'];
@@ -112,6 +113,18 @@ async function releaseSlot(postId) {
 // review, a scheduled post the aggregator will release, a post held here for
 // timed delivery, or published immediately when its slot has already passed.
 async function runSlot(automation, { platform, slot, brand, index, rotation }) {
+  // A platform that cannot take this format is checked before anything is
+  // generated. TikTok takes video only, so an image automation with TikTok
+  // selected used to write and pay for a post the platform then rejected —
+  // the run went "partial", Instagram published, TikTok silently did not, and
+  // the reason was buried in one long detail string.
+  if (!platformSupportsFormat(platform, automation.format)) {
+    return {
+      platform, slot: slot.key, ok: false,
+      error: formatMismatchReason(platform, automation.format),
+    };
+  }
+
   const conn = await connectionFor(automation.user_id, platform);
   if (!conn) {
     return { platform, slot: slot.key, ok: false, error: `${platform} is not connected` };
@@ -144,6 +157,17 @@ async function runSlot(automation, { platform, slot, brand, index, rotation }) {
     : automation.format === 'video'
       ? 'single'
       : automation.format;
+
+  // That downgrade is a fallback, not a licence: on a video-only platform a
+  // single image is not publishable, so the slot is released for another run
+  // rather than filled with something that can only fail at publish time.
+  if (!platformSupportsFormat(platform, storedFormat)) {
+    await releaseSlot(claimed.id);
+    return {
+      platform, slot: slot.key, ok: false,
+      error: `the video script came back empty — ${formatMismatchReason(platform, storedFormat)}`,
+    };
+  }
 
   const delivery = deliveryFor(conn);
   // Videos wait for the render worker; "review" automations wait for the user.

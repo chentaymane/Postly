@@ -113,8 +113,12 @@ CREATE TABLE IF NOT EXISTS queued_posts (
     id                BIGSERIAL PRIMARY KEY,
     user_id           BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     platform          TEXT NOT NULL,
-    -- generating | draft | scheduled | published | failed | unconfirmed
+    -- generating | draft | scheduled | publishing | retrying | published
+    --            | failed | unconfirmed
     -- "generating" is a slot claimed by a run that is still writing the post.
+    -- "publishing" and "retrying" are posts claimed by the tick that is sending
+    -- them, so a second tick cannot send the same post again; both are restored
+    -- to where they came from if the run holding them dies.
     -- "unconfirmed" means the platform never answered: the post may be live.
     status            TEXT NOT NULL DEFAULT 'draft',
     theme             TEXT,

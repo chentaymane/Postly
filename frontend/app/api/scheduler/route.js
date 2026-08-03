@@ -28,7 +28,14 @@ export async function GET() {
        count(*) FILTER (WHERE status = 'scheduled' AND scheduled_at > now())  AS upcoming,
        count(*) FILTER (WHERE status = 'failed' AND failure_kind = 'transient'
                           AND next_attempt_at IS NOT NULL)                     AS retrying,
-       count(*) FILTER (WHERE status = 'failed' AND failure_kind = 'permanent') AS blocked
+       count(*) FILTER (WHERE status = 'failed' AND failure_kind = 'permanent') AS blocked,
+       -- Video drafts the render worker has not finished. Automations default
+       -- to video, and a video without an MP4 cannot publish at its slot — so a
+       -- worker that is not running looks exactly like an automation that has
+       -- stopped unless it is reported.
+       count(*) FILTER (WHERE format = 'video' AND video_url IS NULL
+                          AND video_status IN ('pending', 'rendering')
+                          AND created_at < now() - interval '30 minutes')       AS awaiting_render
      FROM queued_posts WHERE user_id = $1`,
     [userId]
   );
@@ -53,6 +60,7 @@ export async function GET() {
     upcoming: Number(p.upcoming || 0),
     retrying: Number(p.retrying || 0),
     blocked: Number(p.blocked || 0),
+    awaitingRender: Number(p.awaiting_render || 0),
   });
 }
 

@@ -13,12 +13,17 @@ const META_SCOPES = [
   'instagram_content_publish',
 ];
 
+// Every format Postly can make. A platform lists the ones it will actually
+// accept; anything not listed is refused by the platform, not by us.
+const ALL_FORMATS = ['single', 'carousel', 'video'];
+
 export const PLATFORMS = {
   pinterest: {
     name: 'Pinterest',
     color: '#E60023',
     emoji: '📌',
     enabled: true,
+    formats: ALL_FORMATS,
     authorizeUrl: 'https://www.pinterest.com/oauth/',
     tokenUrl: 'https://api.pinterest.com/v5/oauth/token',
     scopes: ['boards:read', 'pins:read', 'pins:write', 'user_accounts:read'],
@@ -33,6 +38,7 @@ export const PLATFORMS = {
     color: '#1877F2',
     emoji: '👍',
     enabled: true,
+    formats: ALL_FORMATS,
     kind: 'meta',
     authorizeUrl: 'https://www.facebook.com/v21.0/dialog/oauth',
     tokenUrl: 'https://graph.facebook.com/v21.0/oauth/access_token',
@@ -49,6 +55,7 @@ export const PLATFORMS = {
     color: '#E4405F',
     emoji: '📷',
     enabled: true,
+    formats: ALL_FORMATS,
     kind: 'instagram_login',
     authorizeUrl: 'https://www.instagram.com/oauth/authorize',
     tokenUrl: 'https://api.instagram.com/oauth/access_token',
@@ -63,6 +70,7 @@ export const PLATFORMS = {
     color: '#000000',
     emoji: '𝕏',
     enabled: false,
+    formats: ALL_FORMATS,
     clientIdEnv: 'X_CLIENT_ID',
     clientSecretEnv: 'X_CLIENT_SECRET',
   },
@@ -71,6 +79,7 @@ export const PLATFORMS = {
     color: '#0A66C2',
     emoji: '💼',
     enabled: false,
+    formats: ALL_FORMATS,
     clientIdEnv: 'LINKEDIN_CLIENT_ID',
     clientSecretEnv: 'LINKEDIN_CLIENT_SECRET',
   },
@@ -79,10 +88,38 @@ export const PLATFORMS = {
     color: '#010101',
     emoji: '🎵',
     enabled: false,
+    // Video only. An image post sent to TikTok is rejected at publish time,
+    // which read as "Instagram works and TikTok doesn't" with no reason given —
+    // so the mismatch is caught before a post is generated for it at all.
+    formats: ['video'],
     clientIdEnv: 'TIKTOK_CLIENT_KEY',
     clientSecretEnv: 'TIKTOK_CLIENT_SECRET',
   },
 };
+
+// Formats this platform accepts. An unknown platform is not constrained here:
+// its publish call decides, which is the pre-existing behaviour.
+export function formatsFor(platformKey) {
+  return PLATFORMS[platformKey]?.formats || ALL_FORMATS;
+}
+
+export function platformSupportsFormat(platformKey, format) {
+  return formatsFor(platformKey).includes(format);
+}
+
+// Why a platform cannot take this format, in the words the user chose in the
+// form — "Narrated video", not "video".
+export const FORMAT_LABELS = {
+  single: 'single image',
+  carousel: 'story carousel',
+  video: 'narrated video',
+};
+
+export function formatMismatchReason(platformKey, format) {
+  const accepted = formatsFor(platformKey).map((f) => FORMAT_LABELS[f] || f);
+  const name = PLATFORMS[platformKey]?.name || platformKey;
+  return `${name} only accepts ${accepted.join(' or ')} — this makes ${FORMAT_LABELS[format] || format}`;
+}
 
 import { socialApiEnabled, SOCIALAPI_PLATFORMS } from './socialapi.js';
 import { zernioEnabled, ZERNIO_PLATFORMS } from './zernio.js';
@@ -111,6 +148,8 @@ export function publicCatalog(available = null) {
       name: p.name,
       color: p.color,
       emoji: p.emoji,
+      // The automation form needs this to warn before a run rather than after.
+      formats: p.formats || ALL_FORMATS,
       enabled: p.enabled || viaAggregator,
       requirement: viaAggregator ? null : p.requirement || null,
       configured: viaAggregator || directConfigured,

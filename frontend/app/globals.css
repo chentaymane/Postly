@@ -741,11 +741,17 @@ h1, h2, h3, h4 { letter-spacing: -0.022em; }
   font-size: 12.5px;
 }
 .run-row:first-child { border-top: none; }
+.run-row { align-items: flex-start; }
+.run-when, .run-row > .pill { margin-top: 1px; }
 .run-when { color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 96px; }
 .run-detail {
   flex: 1; min-width: 0; color: var(--text-soft);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* One line per platform: which one published and which one did not is the
+   whole point of this list, and a single joined string hid it. */
+.run-lines { display: flex; flex-direction: column; gap: 2px; }
+.run-lines > span { overflow: hidden; text-overflow: ellipsis; }
 
 /* Scheduler health */
 .health {

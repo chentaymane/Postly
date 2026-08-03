@@ -40,6 +40,24 @@ function timezoneOptions(browserZone, current) {
   return Array.from(new Set([browserZone, current, ...common].filter(Boolean)));
 }
 
+// Selected platforms that will refuse a given format. TikTok takes video only,
+// so an image automation with TikTok selected published to everything else and
+// quietly skipped TikTok on every single run — worth saying before the run, not
+// after it.
+function unsupportedPlatforms(selected, format, platforms) {
+  return (selected || [])
+    .map((key) => platforms.find((p) => p.key === key))
+    .filter((p) => p?.formats && !p.formats.includes(format));
+}
+
+// "Narrated video", or "single image or story carousel" — the labels the form
+// itself uses, so the warning and the dropdown agree.
+function acceptedLabel(formats) {
+  return (formats || [])
+    .map((f) => FORMATS.find(([v]) => v === f)?.[1] || f)
+    .join(' or ');
+}
+
 // Minutes past local midnight, for placing a marker on the day track.
 function minutesOf(hhmm) {
   const [h, m] = String(hhmm || '0:00').split(':').map(Number);
@@ -113,6 +131,16 @@ function DayStrip({ times, timezone, tzLabel, nextRunAt }) {
   );
 }
 
+// A run's detail is one line per platform, joined with " · ". Shown as a single
+// truncated string it hid the thing worth reading — that Instagram published and
+// TikTok did not, and why — so it is split back out.
+function runLines(detail) {
+  return String(detail || '')
+    .split(' · ')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 function RunHistory({ runs }) {
   if (!runs || runs.length === 0) {
     return <p className="empty">No runs recorded yet.</p>;
@@ -134,7 +162,13 @@ function RunHistory({ runs }) {
             {r.status}
           </span>
           <span className="run-detail" title={r.detail || ''}>
-            {r.detail || (r.status === 'skipped' ? 'nothing due' : '—')}
+            {runLines(r.detail).length > 0 ? (
+              <span className="run-lines">
+                {runLines(r.detail).map((line, i) => <span key={i}>{line}</span>)}
+              </span>
+            ) : (
+              r.status === 'skipped' ? 'nothing due' : '—'
+            )}
           </span>
         </div>
       ))}
@@ -217,6 +251,9 @@ function AutomationCard({ a, platforms, browserZone, onChanged }) {
   // automation is still on UTC while the person reading this is not.
   const zoneMismatch = a.timezone === 'UTC' && browserZone && browserZone !== 'UTC';
 
+  const wrongFormat = unsupportedPlatforms(a.platforms, a.format, platforms);
+  const draftWrongFormat = unsupportedPlatforms(draft.platforms, draft.format, platforms);
+
   return (
     <div className={`auto-card${a.enabled ? '' : ' paused'}`}>
       <div className="auto-main">
@@ -273,6 +310,27 @@ function AutomationCard({ a, platforms, browserZone, onChanged }) {
                 setBusy(null);
                 onChanged(`Times now follow ${browserZone}`);
               }}>Use {browserZone} instead</button>
+            </span>
+          </div>
+        )}
+
+        {wrongFormat.length > 0 && (
+          <div className="notice warn">
+            <span className="notice-icon"><NavIcon name="alert" size={16} /></span>
+            <span className="notice-body">
+              {wrongFormat.map((p) => p.name).join(', ')}{' '}
+              {wrongFormat.length === 1 ? 'does' : 'do'} not accept{' '}
+              <strong>{formatLabel}</strong> — {wrongFormat.length === 1 ? 'it is' : 'they are'}{' '}
+              skipped on every run. {wrongFormat.length === 1 ? 'It accepts' : 'They accept'}{' '}
+              {acceptedLabel(wrongFormat[0].formats)}.{' '}
+              {wrongFormat.every((p) => p.formats.includes('video')) && (
+                <button className="link-btn" disabled={!!busy} onClick={async () => {
+                  setBusy('format');
+                  await patch({ format: 'video' });
+                  setBusy(null);
+                  onChanged('Format changed to Narrated video');
+                }}>Switch to Narrated video</button>
+              )}
             </span>
           </div>
         )}
@@ -380,6 +438,13 @@ function AutomationCard({ a, platforms, browserZone, onChanged }) {
                       onChange={(e) => setDraft({ ...draft, format: e.target.value })}>
                 {FORMATS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
+              {draftWrongFormat.length > 0 && (
+                <p className="hint warn-text">
+                  {draftWrongFormat.map((p) => p.name).join(', ')} will be skipped —{' '}
+                  {draftWrongFormat.length === 1 ? 'it accepts' : 'they accept'}{' '}
+                  {acceptedLabel(draftWrongFormat[0].formats)} only.
+                </p>
+              )}
               {draft.format === 'video' && (
                 <p className="hint">
                   Videos are drafted here and rendered by the local worker. They publish at their
@@ -583,6 +648,26 @@ function SchedulerHealth({ health, onKick, kicking }) {
   );
 }
 
+// The render worker is a separate machine from the scheduler, and only videos
+// depend on it. With video the default format, a worker that is not running
+// looks exactly like an automation that has stopped: drafts are made on time
+// and simply never publish, because a video without an MP4 cannot go out.
+function RenderWorkerHealth({ health }) {
+  const waiting = health?.awaitingRender || 0;
+  if (waiting === 0) return null;
+
+  return (
+    <div className="health down">
+      <span className="health-dot" />
+      <span className="health-text">
+        <strong>{waiting} video{waiting === 1 ? '' : 's'} waiting on the render worker</strong>{' '}
+        for over 30 minutes. They publish as soon as the MP4 exists — start{' '}
+        <code>worker/render_worker.py</code> on the machine with FFmpeg and Piper.
+      </span>
+    </div>
+  );
+}
+
 export default function AutomationsPage() {
   const [automations, setAutomations] = useState([]);
   const [platforms, setPlatforms] = useState([]);
@@ -634,7 +719,9 @@ export default function AutomationsPage() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: `Automation ${automations.length + 1}`,
-        post_type: 'mixed', format: 'single', approval: 'review',
+        // Narrated video by default: it is the format every connected platform
+        // accepts, TikTok included, and TikTok takes nothing else.
+        post_type: 'mixed', format: 'video', approval: 'review',
         platforms: connectedKeys, times: ['10:00'],
         timezone: browserZone,     // never silently default someone to UTC
         enabled: false,
@@ -666,6 +753,7 @@ export default function AutomationsPage() {
       {toast && <div className="toast" role="status">{toast}</div>}
 
       {!loading && <SchedulerHealth health={health} onKick={kick} kicking={kicking} />}
+      {!loading && <RenderWorkerHealth health={health} />}
 
       {loading ? (
         <div className="skeleton-stack">
@@ -680,7 +768,8 @@ export default function AutomationsPage() {
           <p>
             An automation writes and publishes posts for you on a schedule. Pick the kind of
             content, the format, the platforms and the hours — it runs every day in your own
-            timezone, and catches up if a run is missed.
+            timezone, and catches up if a run is missed. New automations make narrated video,
+            which every platform accepts and which needs the local render worker running.
           </p>
           <button className="btn btn-accent" onClick={create} disabled={creating}>
             Create your first automation
