@@ -3,7 +3,9 @@ import { headers } from 'next/headers';
 import { auth, signOut } from '../../lib/auth';
 import { query } from '../../lib/db';
 import { PostlyLogo } from '../../components/BrandIcons';
-import NavLinks from '../../components/NavLinks';
+import { SidebarNav, DrawerNav } from '../../components/NavLinks';
+import ThemeToggle from '../../components/ThemeToggle';
+import SchedulerPulse from '../../components/SchedulerPulse';
 
 // Chrome for the signed-in application pages.
 export default async function AppLayout({ children }) {
@@ -24,6 +26,19 @@ export default async function AppLayout({ children }) {
       if (rows[0]?.n === 0 && !hasEnvFallback) redirect('/welcome');
     }
   }
+
+  // Drafts waiting for approval are the one thing that needs chasing, so the
+  // count rides on the nav rather than waiting to be discovered on the page.
+  let badges = {};
+  if (user?.id) {
+    const { rows } = await query(
+      `SELECT count(*)::int AS n FROM queued_posts
+        WHERE user_id = $1 AND status IN ('draft','failed','unconfirmed')`,
+      [Number(user.id)]
+    );
+    badges = { '/review': rows[0]?.n || 0 };
+  }
+
   const initial = (user?.name || user?.email || '?').trim().charAt(0).toUpperCase();
 
   async function doSignOut() {
@@ -31,40 +46,77 @@ export default async function AppLayout({ children }) {
     await signOut({ redirectTo: '/login' });
   }
 
-  return (
-    <>
-      <header className="topbar">
-        <a href={user ? '/' : '/login'} aria-label="Postly home">
-          <PostlyLogo />
-        </a>
+  if (!user) {
+    return (
+      <div className="content">
+        <header className="topbar" style={{ display: 'flex' }}>
+          <a href="/login" aria-label="Postly home"><PostlyLogo /></a>
+          <div className="topbar-actions">
+            <ThemeToggle />
+            <a className="btn btn-outline btn-sm" href="/login">Sign in</a>
+          </div>
+        </header>
+        <main className="container">{children}</main>
+        <SiteFooter />
+      </div>
+    );
+  }
 
-        {user ? (
-          <nav className="topnav">
-            <NavLinks />
-            <div className="user-chip">
-              <span className="avatar" aria-hidden="true">{initial}</span>
-              <span className="user-email">{user.email}</span>
+  return (
+    <div className="shell">
+      <aside className="sidebar">
+        <div className="sidebar-brand">
+          <a href="/dashboard" aria-label="Postly home"><PostlyLogo /></a>
+        </div>
+
+        <nav aria-label="Main">
+          <SidebarNav badges={badges} />
+        </nav>
+
+        <div className="sidebar-foot">
+          <div className="user-chip">
+            <span className="avatar" aria-hidden="true">{initial}</span>
+            <span className="user-meta">
+              <span className="user-email" title={user.email}>{user.email}</span>
               <form action={doSignOut}>
                 <button className="link-btn" type="submit">Sign out</button>
               </form>
-            </div>
-          </nav>
-        ) : (
-          <nav className="topnav">
-            <a className="navlink" href="/login">Sign in</a>
-          </nav>
-        )}
-      </header>
+            </span>
+            <ThemeToggle />
+          </div>
+        </div>
+      </aside>
 
-      <main className="container">{children}</main>
+      <div className="content">
+        <header className="topbar">
+          <a href="/dashboard" aria-label="Postly home"><PostlyLogo /></a>
+          <div className="topbar-actions">
+            <ThemeToggle />
+            <form action={doSignOut}>
+              <button className="btn btn-ghost btn-sm" type="submit">Sign out</button>
+            </form>
+            <DrawerNav badges={badges} />
+          </div>
+        </header>
 
-      <footer className="footer">
-        <span>© {new Date().getFullYear()} Postly</span>
-        <span className="footer-sep">·</span>
-        <a href="/privacy">Privacy Policy</a>
-        <span className="footer-sep">·</span>
-        <a href="/terms">Terms of Service</a>
-      </footer>
-    </>
+        <main className="container">{children}</main>
+        <SiteFooter />
+      </div>
+
+      {/* Keeps posts going out on time when the host throttles the cron. */}
+      <SchedulerPulse />
+    </div>
+  );
+}
+
+function SiteFooter() {
+  return (
+    <footer className="footer">
+      <span>© {new Date().getFullYear()} Postly</span>
+      <span className="footer-sep">·</span>
+      <a href="/privacy">Privacy Policy</a>
+      <span className="footer-sep">·</span>
+      <a href="/terms">Terms of Service</a>
+    </footer>
   );
 }

@@ -52,16 +52,26 @@ export async function POST(request, { params }) {
   if (!post) return NextResponse.json({ error: 'job not found' }, { status: 404 });
 
   // A video from an auto-approval automation has been waiting only on the
-  // render. Now that the MP4 exists it goes out immediately — otherwise these
-  // drafts would pile up forever with nobody to approve them.
+  // render. Now that the MP4 exists it can go out — otherwise these drafts
+  // would pile up forever with nobody to approve them.
+  //
+  // It goes out *at its slot*, not the moment the render happens to finish:
+  // rendering takes minutes and runs on a machine whose availability has
+  // nothing to do with the posting schedule, so publishing on completion put
+  // videos out at whatever time the worker got round to them.
   if (post.automation_id && post.status === 'draft') {
     const { rows: autoRows } = await query(
       'SELECT approval FROM automations WHERE id = $1',
       [post.automation_id]
     );
     if (autoRows[0]?.approval === 'auto') {
+      const slotAt = post.scheduled_at ? new Date(post.scheduled_at) : null;
+      const stillAhead = slotAt && slotAt.getTime() > Date.now() + 60000;
+
       const { publishQueuedPost } = await import('../../../../../lib/publishqueued');
-      const result = await publishQueuedPost(post);
+      const result = await publishQueuedPost(post, {
+        scheduledAt: stillAhead ? slotAt.toISOString() : null,
+      });
       return NextResponse.json({
         ok: true,
         video_status: 'ready',

@@ -85,6 +85,7 @@ Required in `.env.local`:
   `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`
 - `GROQ_API_KEY` — free key from [console.groq.com/keys](https://console.groq.com/keys)
 - `APP_BASE_URL` — `http://localhost:3000` locally (auto-detected on Vercel)
+- `CRON_SECRET` — authorises the scheduler tick; without it automations never run
 - Per platform: `<PLATFORM>_CLIENT_ID` / `_CLIENT_SECRET`
 
 ## Connecting a platform
@@ -136,6 +137,64 @@ accounts you own without app review.
 4. Run `npm run db:setup` once against the Neon URL to create the tables.
 5. Update each platform app's redirect URI to the deployed URL.
 
+## Automations and the scheduler
+
+An automation is a recurring rule: what kind of post, in which format, to which
+platforms, at which hours. Times are **local wall-clock in the automation's own
+timezone** — "10:00" means ten where you are, and it stays at ten across
+daylight saving, because the times are stored as wall-clock plus an IANA zone
+rather than as instants.
+
+Everything is driven by one endpoint that should run every few minutes:
+
+```
+GET|POST /api/cron/autopilot        Authorization: Bearer $CRON_SECRET
+```
+
+Each tick does five things, all of them safe to repeat:
+
+1. **Sweeps** slot claims abandoned by a run that was killed mid-generation
+2. **Generates** posts whose slots are due, catching up ones that were missed
+3. **Delivers** posts Postly is holding for a specific minute
+4. **Retries** transient failures on a growing backoff (~2m, 8m, 25m, 1h, 3h)
+5. **Reconciles** what the platforms actually did with what we assumed
+
+Two things make it safe to run often, late, twice, or by hand:
+
+- every post is claimed under a unique **slot key** (`date + time + platform`),
+  so a duplicated tick cannot produce a duplicate post — the database refuses it
+- a **watermark** per automation records how far the schedule has been read, so
+  no slot is replayed and none is skipped
+
+### Driving the tick
+
+`vercel.json` asks for `*/5 * * * *`. **Vercel's Hobby plan triggers crons only
+once a day** whatever the expression says, so on that plan the cron alone cannot
+deliver a post at 10:00. Options, best first:
+
+| How | Setup |
+|-----|-------|
+| **Vercel Pro** | Nothing — the 5-minute schedule is honoured |
+| **External scheduler** | Point [cron-job.org](https://cron-job.org) (free) or a GitHub Action at `https://<your-app>/api/cron/autopilot?key=$CRON_SECRET` every 5 minutes |
+| **An open tab** | The app pings the scheduler itself while somebody has it open — a fallback, not a plan |
+
+The secret is accepted as an `Authorization: Bearer` header, an `x-cron-secret`
+header, or a `?key=` query parameter, so any scheduler can drive it.
+
+**Automations → the health bar** shows when the tick last ran. If that number
+grows past a few minutes, posts are going out late and the cron is the reason.
+
+### Delivery: who holds the post
+
+| Connection | Who waits for the minute |
+|------------|--------------------------|
+| Aggregator (Zernio, SocialAPI) | The aggregator — handed the post with its time |
+| Direct OAuth (Pinterest, Meta) | **Postly** — the post is held here and published by the tick |
+
+Direct platform APIs publish on receipt and cannot be given a future time. Those
+posts are simply held, which is why an automation on a directly connected
+account schedules normally instead of failing.
+
 ## Video posts
 
 Piper and FFmpeg cannot run on a serverless function, so video rendering lives
@@ -185,6 +244,8 @@ video drafts simply sit and wait.
 - [x] Story carousels (Instagram, Facebook, Pinterest)
 - [x] Narrated video for Reels / TikTok (Piper + FFmpeg)
 - [x] Publish verification so a timeout is never reported as a failure
+- [x] Automations in the user's own timezone, DST-stable
+- [x] Idempotent scheduler with catch-up, retries and a run log
 - [ ] X, LinkedIn connectors
 - [ ] Branding overlay (logo/text on generated images)
 - [ ] TikTok

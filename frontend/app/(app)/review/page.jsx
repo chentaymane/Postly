@@ -2,12 +2,20 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { PlatformIcon } from '../../../components/BrandIcons';
+import { PlatformIcon, NavIcon } from '../../../components/BrandIcons';
 
 const PLATFORM_COLORS = {
   pinterest: '#E60023', instagram: '#E4405F', facebook: '#1877F2',
   x: '#000000', linkedin: '#0A66C2', tiktok: '#010101',
 };
+
+function relative(iso) {
+  if (!iso) return null;
+  const diff = new Date(iso).getTime() - Date.now();
+  const mins = Math.max(1, Math.round(Math.abs(diff) / 60000));
+  const unit = mins < 60 ? `${mins} min` : `${Math.round(mins / 60)} h`;
+  return diff >= 0 ? `in ${unit}` : `${unit} ago`;
+}
 
 function DraftCard({ post, onChanged }) {
   const [edit, setEdit] = useState({
@@ -24,6 +32,7 @@ function DraftCard({ post, onChanged }) {
   const videoReady = Boolean(post.video_url);
   const rendering = isVideo && !videoReady && post.video_status !== 'failed';
   const unconfirmed = post.status === 'unconfirmed';
+  const willRetry = post.status === 'failed' && post.failure_kind === 'transient' && post.next_attempt_at;
   const slides = Array.isArray(post.image_urls) ? post.image_urls : [];
   // Local date + a plain 0-23 hour, combined into one timestamp.
   const when = whenDate ? `${whenDate}T${whenHour.padStart(2, '0')}:00` : '';
@@ -109,38 +118,57 @@ function DraftCard({ post, onChanged }) {
             <span className="pill soon">{slides.length} slides</span>
           ) : null}
           {rendering ? (
-            <span className="pill soon"><span className="spinner" />Rendering…</span>
+            <span className="pill warn"><span className="spinner" />Rendering…</span>
           ) : unconfirmed ? (
-            <span className="pill soon"><span className="dot" />Unconfirmed</span>
+            <span className="pill warn"><span className="dot" />Unconfirmed</span>
+          ) : willRetry ? (
+            <span className="pill warn"><span className="dot pulse" />Retrying</span>
           ) : post.status === 'failed' ? (
-            <span className="pill disconnected"><span className="dot" />Failed</span>
+            <span className="pill danger"><span className="dot" />Failed</span>
           ) : (
-            <span className="pill disconnected"><span className="dot" />Draft</span>
+            <span className="pill neutral"><span className="dot" />Draft</span>
           )}
         </div>
 
         {unconfirmed ? (
           <div className="notice warn">
-            <strong>!</strong>
-            <span>
+            <span className="notice-icon"><NavIcon name="alert" size={16} /></span>
+            <span className="notice-body">
               {post.error_message || `${post.platform} never confirmed this publish.`}{' '}
               Check your {post.platform} account: if the post is there, mark it published —
               publishing again would post it twice.
             </span>
           </div>
-        ) : (
-          post.error_message && <div className="notice err">{post.error_message}</div>
-        )}
+        ) : post.error_message ? (
+          // A failure that will be retried is a different message from one that
+          // needs the user: saying "failed" for both is what made every hiccup
+          // look like a lost post.
+          <div className={`notice ${willRetry ? 'warn' : 'err'}`}>
+            <span className="notice-icon"><NavIcon name={willRetry ? 'clock' : 'alert'} size={16} /></span>
+            <span className="notice-body">
+              {post.error_message}
+              {willRetry && (
+                <> — <strong>retrying automatically {relative(post.next_attempt_at)}</strong>
+                  {post.attempts > 0 && ` (attempt ${post.attempts + 1})`}.
+                </>
+              )}
+            </span>
+          </div>
+        ) : null}
         {rendering && (
           <div className="notice">
-            <span>
+            <span className="notice-icon"><span className="spinner" /></span>
+            <span className="notice-body">
               Waiting for the render worker to voice and edit this video. It appears here
               automatically when the MP4 is ready.
             </span>
           </div>
         )}
         {isVideo && post.video_status === 'failed' && post.video_error && (
-          <div className="notice err"><strong>!</strong><span>Rendering failed: {post.video_error}</span></div>
+          <div className="notice err">
+            <span className="notice-icon"><NavIcon name="alert" size={16} /></span>
+            <span className="notice-body">Rendering failed: {post.video_error}</span>
+          </div>
         )}
         {notice && <div className="notice">{notice}</div>}
         {error && <div className="notice err">{error}</div>}
@@ -223,6 +251,7 @@ function ScheduledRow({ post, onChanged }) {
     onChanged('Schedule cancelled — back in drafts');
   }
   const t = new Date(post.scheduled_at);
+  const overdue = t.getTime() < Date.now() - 5 * 60000;
   return (
     <div className="sched-row">
       {post.image_url && (
@@ -234,7 +263,21 @@ function ScheduledRow({ post, onChanged }) {
         <PlatformIcon platform={post.platform} size={13} /> {post.platform}
       </span>
       <span className="sched-caption">{(post.pin_title || post.caption || post.theme || '').slice(0, 90)}</span>
-      <button className="btn btn-ghost" disabled={busy} onClick={cancel}>
+      {/* Who actually sends it. A post the platform is holding cannot be late on
+          our account, and one Postly holds depends on the scheduler running —
+          worth telling apart when something has not appeared. */}
+      {overdue ? (
+        <span className="pill warn" title="Its time has passed — the next scheduler tick sends it">
+          <span className="dot pulse" />sending
+        </span>
+      ) : (
+        <span className="pill neutral" title={post.delivery === 'postly'
+          ? 'Postly publishes this at the scheduled minute'
+          : `${post.platform} is holding this and releases it itself`}>
+          {post.delivery === 'postly' ? 'queued here' : 'with platform'}
+        </span>
+      )}
+      <button className="btn btn-ghost btn-sm" disabled={busy} onClick={cancel}>
         {busy ? <span className="spinner" /> : 'Cancel'}
       </button>
     </div>
@@ -275,14 +318,16 @@ export default function ReviewPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Videos are rendered by a worker outside this request, so poll while any
-  // draft is still waiting for its MP4.
+  // Two things change without the user doing anything: a video finishing in the
+  // render worker, and a failed post being retried by the scheduler. Poll while
+  // either is outstanding so the page does not sit on a state that has moved on.
   const rendering = posts.some((p) => p.format === 'video' && !p.video_url && p.video_status !== 'failed');
+  const retrying = posts.some((p) => p.status === 'failed' && p.next_attempt_at);
   useEffect(() => {
-    if (!rendering) return undefined;
-    const t = setInterval(load, 15000);
+    if (!rendering && !retrying) return undefined;
+    const t = setInterval(load, rendering ? 15000 : 60000);
     return () => clearInterval(t);
-  }, [rendering, load]);
+  }, [rendering, retrying, load]);
 
   const drafts = posts.filter((p) => ['draft', 'failed', 'unconfirmed'].includes(p.status));
   const scheduled = posts.filter((p) => p.status === 'scheduled' && p.scheduled_at);
@@ -311,12 +356,16 @@ export default function ReviewPage() {
       </div>
 
       {loading ? (
-        <div className="skeleton" style={{ height: 220 }} />
+        <div className="skeleton-stack">
+          <div className="skeleton" style={{ height: 220 }} />
+          <div className="skeleton" style={{ height: 220 }} />
+        </div>
       ) : tab === 'drafts' ? (
         drafts.length === 0 ? (
           <div className="empty-state">
+            <span className="empty-icon"><NavIcon name="inbox" size={26} /></span>
             <p className="empty-title">No drafts waiting</p>
-            <p className="empty">Generate content and it lands here for your approval first.</p>
+            <p>Generate content and it lands here for your approval first.</p>
             <a className="btn btn-accent" href="/create">Create a post</a>
           </div>
         ) : (
@@ -326,9 +375,10 @@ export default function ReviewPage() {
         )
       ) : scheduled.length === 0 ? (
         <div className="empty-state">
+          <span className="empty-icon"><NavIcon name="calendar" size={26} /></span>
           <p className="empty-title">Nothing scheduled yet</p>
-          <p className="empty">Approve a draft with a date, or enable Autopilot in Settings.</p>
-          <a className="btn btn-outline" href="/settings">Open Settings</a>
+          <p>Approve a draft with a date, or set up an automation to fill the schedule for you.</p>
+          <a className="btn btn-accent" href="/automations">Set up an automation</a>
         </div>
       ) : (
         <div className="sched-groups">

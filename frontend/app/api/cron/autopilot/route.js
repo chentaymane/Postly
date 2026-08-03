@@ -1,37 +1,44 @@
 import { NextResponse } from 'next/server';
-import { query } from '../../../../lib/db';
-import { runAutomation } from '../../../../lib/automations';
+import { runSchedulerTick } from '../../../../lib/scheduler';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
 
-// Daily cron (Vercel). Runs every enabled automation once: each one generates
-// its posts and either schedules them at the chosen hours or leaves drafts in
-// Review, depending on its approval mode.
-export async function GET(request) {
+// The scheduler tick. Runs every few minutes and does whatever is due:
+// generates posts for slots that have arrived (catching up ones that were
+// missed), publishes posts held here for a specific minute, retries transient
+// failures, and reads back what the platforms actually did.
+//
+// It is deliberately idempotent — every unit of work is guarded by a slot key
+// or a status transition — so running it twice, or late, or by hand, is safe.
+
+// Vercel's cron sends the secret as a bearer token. An external scheduler
+// (cron-job.org, GitHub Actions, a home server) usually cannot set headers on a
+// simple GET, so a header or a query parameter is accepted too — Postly must
+// not depend on one hosting provider's cron to post on time.
+function authorized(request) {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return false;
   const auth = request.headers.get('authorization') || '';
-  if (!process.env.CRON_SECRET || auth !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (auth === `Bearer ${secret}`) return true;
+  if (request.headers.get('x-cron-secret') === secret) return true;
+  return new URL(request.url).searchParams.get('key') === secret;
+}
+
+async function tick(request) {
+  if (!authorized(request)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
-
-  const { rows: automations } = await query(
-    `SELECT * FROM automations WHERE enabled = true ORDER BY id LIMIT 20`
-  );
-
-  const runs = [];
-  let budget = 10; // total generations across all automations this invocation
-
-  for (const automation of automations) {
-    if (budget <= 0) break;
-    try {
-      const { results, runStatus, detail } = await runAutomation(automation, { limit: budget });
-      budget -= results.length;
-      runs.push({ id: automation.id, name: automation.name, runStatus, detail });
-    } catch (e) {
-      runs.push({ id: automation.id, name: automation.name, runStatus: 'failed', detail: e.message });
-    }
+  try {
+    // Comfortably inside maxDuration, so the tick reports what it did rather
+    // than being killed with the work half done and no record of it.
+    const result = await runSchedulerTick({ budgetMs: 240000 });
+    return NextResponse.json(result);
+  } catch (e) {
+    return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
   }
-
-  return NextResponse.json({ ran: true, automations: runs });
 }
+
+export const GET = tick;
+export const POST = tick;

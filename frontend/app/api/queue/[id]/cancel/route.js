@@ -21,8 +21,10 @@ export async function POST(request, { params }) {
   const post = rows[0];
   if (!post) return NextResponse.json({ error: 'scheduled post not found' }, { status: 404 });
 
-  let upstream = 'skipped';
-  if (post.published_post_id) {
+  // Only a post the aggregator is holding needs cancelling upstream. One held
+  // by Postly has never left this database, so there is nothing to call.
+  let upstream = post.delivery === 'postly' ? 'held here — nothing to cancel' : 'skipped';
+  if (post.published_post_id && post.delivery !== 'postly') {
     try {
       if (post.provider === 'socialapi') {
         const { deletePost } = await import('../../../../../lib/socialapi');
@@ -38,10 +40,13 @@ export async function POST(request, { params }) {
     }
   }
 
+  // The slot key stays on the row. Cancelling means "not this one" — the
+  // scheduler must not helpfully regenerate the post the user just cancelled.
   await query(
     `UPDATE queued_posts
         SET status = 'draft', scheduled_at = NULL, published_post_id = NULL,
-            error_message = NULL, updated_at = now()
+            delivery = NULL, error_message = NULL, failure_kind = NULL,
+            next_attempt_at = NULL, updated_at = now()
       WHERE id = $1 AND user_id = $2`,
     [params.id, userId]
   );

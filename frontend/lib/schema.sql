@@ -113,7 +113,8 @@ CREATE TABLE IF NOT EXISTS queued_posts (
     id                BIGSERIAL PRIMARY KEY,
     user_id           BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     platform          TEXT NOT NULL,
-    -- draft | scheduled | published | failed | unconfirmed
+    -- generating | draft | scheduled | published | failed | unconfirmed
+    -- "generating" is a slot claimed by a run that is still writing the post.
     -- "unconfirmed" means the platform never answered: the post may be live.
     status            TEXT NOT NULL DEFAULT 'draft',
     theme             TEXT,
@@ -292,3 +293,133 @@ ALTER TABLE queued_posts
     ADD COLUMN IF NOT EXISTS remote_status TEXT;      -- pending | published | failed
 ALTER TABLE queued_posts
     ADD COLUMN IF NOT EXISTS reconciled_at TIMESTAMPTZ;
+
+-- ---------------------------------------------------------------------------
+-- Reliable scheduling.
+--
+-- Posting times used to be UTC-only, so "10:00" meant ten in Greenwich rather
+-- than ten where the user lives. Times are now local wall-clock in the
+-- automation's own timezone, which is also what keeps them fixed across DST —
+-- storing a UTC instant would drift by an hour twice a year.
+--
+-- Existing rows default to UTC, which is exactly how they behaved before, so
+-- upgrading changes nobody's schedule until they pick a zone.
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE automations
+    ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT 'UTC';   -- IANA name
+
+-- How far back a missed slot may still be honoured. A cron tick that never
+-- arrived (or arrived late) used to lose that slot silently for the whole day;
+-- within this window the scheduler catches up instead.
+ALTER TABLE automations
+    ADD COLUMN IF NOT EXISTS catch_up_hours INT NOT NULL DEFAULT 6;
+
+-- Watermark: slots at or before this instant have already been considered.
+-- It is what makes a tick idempotent in time as well as in content.
+ALTER TABLE automations
+    ADD COLUMN IF NOT EXISTS scheduled_through TIMESTAMPTZ;
+
+-- Existing automations start from the moment of the upgrade. Without this the
+-- first tick would treat every slot inside the catch-up window as owed and post
+-- several times at once, which is not the behaviour anyone asked for.
+UPDATE automations SET scheduled_through = now() WHERE scheduled_through IS NULL;
+
+ALTER TABLE automations
+    ADD COLUMN IF NOT EXISTS last_error TEXT;
+
+-- One post per (automation, slot, platform), enforced by the database rather
+-- than by hoping the scheduler never runs twice. A retried tick, an overlapping
+-- "Run now" and a duplicated cron delivery all collapse onto the same row.
+ALTER TABLE queued_posts
+    ADD COLUMN IF NOT EXISTS slot_key TEXT;   -- '2026-08-03T10:00|pinterest'
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_queued_posts_slot
+    ON queued_posts (automation_id, slot_key)
+    WHERE automation_id IS NOT NULL AND slot_key IS NOT NULL;
+
+-- Delivery owner for a timed post:
+--   'aggregator' — handed over with a time, they release it
+--   'postly'     — held here, the scheduler publishes it at the minute
+-- Direct platform connections cannot accept a future time, so their scheduled
+-- posts used to fail outright. Now they are simply held.
+ALTER TABLE queued_posts
+    ADD COLUMN IF NOT EXISTS delivery TEXT;
+
+-- Retry bookkeeping. A transient failure (timeout, 5xx, rate limit) is retried
+-- with growing backoff; a real rejection is not retried at all.
+ALTER TABLE queued_posts
+    ADD COLUMN IF NOT EXISTS attempts INT NOT NULL DEFAULT 0;
+ALTER TABLE queued_posts
+    ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ;
+ALTER TABLE queued_posts
+    ADD COLUMN IF NOT EXISTS last_attempt_at TIMESTAMPTZ;
+ALTER TABLE queued_posts
+    ADD COLUMN IF NOT EXISTS failure_kind TEXT;   -- transient | permanent
+
+-- The scheduler's own work queue: everything due, cheapest first.
+CREATE INDEX IF NOT EXISTS idx_queued_posts_due
+    ON queued_posts (status, scheduled_at)
+    WHERE status IN ('scheduled', 'failed');
+
+-- ---------------------------------------------------------------------------
+-- Run history. "It sometimes doesn't post" is unanswerable without a record of
+-- what each tick decided, so every run writes one row — including the runs that
+-- deliberately did nothing.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS automation_runs (
+    id            BIGSERIAL PRIMARY KEY,
+    automation_id BIGINT REFERENCES automations(id) ON DELETE CASCADE,
+    user_id       BIGINT REFERENCES users(id) ON DELETE CASCADE,
+    trigger       TEXT NOT NULL DEFAULT 'cron',   -- cron | manual | catchup
+    status        TEXT NOT NULL,                  -- ok | partial | failed | skipped
+    slots         INT NOT NULL DEFAULT 0,
+    generated     INT NOT NULL DEFAULT 0,
+    published     INT NOT NULL DEFAULT 0,
+    failed        INT NOT NULL DEFAULT 0,
+    detail        TEXT,
+    started_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    finished_at   TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_automation_runs_auto
+    ON automation_runs (automation_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_automation_runs_user
+    ON automation_runs (user_id, started_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- Scheduler heartbeat. A cron that stopped firing looks exactly like an
+-- automation that decided not to post, so the tick records that it ran and the
+-- app shows how long ago that was.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS system_state (
+    key        TEXT PRIMARY KEY,
+    value      JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- ---------------------------------------------------------------------------
+-- Repair: published_post_id used to be filled with the post's public URL
+-- whenever the aggregator returned one. Every such row is unlookupable — the
+-- status check and the cancel call both address /posts/<a whole URL> — so
+-- those posts could never be confirmed live. Move the URL to the column that
+-- means URL and clear the id, which lets reconciliation find them again.
+-- ---------------------------------------------------------------------------
+
+UPDATE queued_posts
+   SET platform_post_url = COALESCE(platform_post_url, published_post_id),
+       published_post_id = NULL,
+       remote_status     = COALESCE(remote_status, 'published')
+ WHERE published_post_id ~ '^https?://';
+
+-- Posts already sent keep their delivery owner recorded, so the scheduler does
+-- not mistake an aggregator-held post for one it needs to publish itself.
+UPDATE queued_posts qp
+   SET delivery = CASE WHEN sc.provider IN ('zernio','socialapi') THEN 'aggregator' ELSE 'postly' END
+  FROM social_connections sc
+ WHERE sc.user_id = qp.user_id
+   AND sc.platform = qp.platform
+   AND qp.delivery IS NULL
+   AND qp.status IN ('scheduled','published');

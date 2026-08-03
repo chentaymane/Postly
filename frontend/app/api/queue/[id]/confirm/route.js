@@ -29,12 +29,14 @@ export async function POST(request, { params }) {
   const post = rows[0];
   if (!post) return NextResponse.json({ error: 'post not found' }, { status: 404 });
 
-  const markPublished = async (postId) => {
+  const markPublished = async (postId, postUrl = null) => {
     await query(
       `UPDATE queued_posts SET status = 'published', published_post_id = $3,
-              error_message = NULL, updated_at = now()
+              platform_post_url = COALESCE($4, platform_post_url),
+              error_message = NULL, failure_kind = NULL, next_attempt_at = NULL,
+              updated_at = now()
         WHERE id = $1 AND user_id = $2`,
-      [post.id, userId, postId]
+      [post.id, userId, postId, postUrl]
     );
     await logPost({
       run_id: null, user_id: userId, platform: post.platform, status: 'success',
@@ -72,12 +74,17 @@ export async function POST(request, { params }) {
   const found = await findPublishedPost({ conn, platform: post.platform, content });
 
   if (found) {
-    await markPublished(found);
-    return NextResponse.json({ ok: true, status: 'published', post_id: found, confirmed: 'platform' });
+    await markPublished(found.id, found.url);
+    return NextResponse.json({ ok: true, status: 'published', post_id: found.id, confirmed: 'platform' });
   }
   if (found === null) {
+    // Genuinely absent: back to a clean draft, with the retry bookkeeping
+    // cleared so a stale backoff cannot fire on it later.
     await query(
-      `UPDATE queued_posts SET status = 'draft', updated_at = now() WHERE id = $1 AND user_id = $2`,
+      `UPDATE queued_posts
+          SET status = 'draft', error_message = NULL, failure_kind = NULL,
+              next_attempt_at = NULL, attempts = 0, updated_at = now()
+        WHERE id = $1 AND user_id = $2`,
       [post.id, userId]
     );
     return NextResponse.json({

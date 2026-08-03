@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { PlatformIcon } from '../../../components/BrandIcons';
+import { PlatformIcon, NavIcon } from '../../../components/BrandIcons';
 
 const PLATFORM_COLORS = {
   pinterest: '#E60023', instagram: '#E4405F', facebook: '#1877F2',
@@ -37,7 +37,7 @@ function TrendChart({ daily }) {
            aria-label={`Posts and clicks over the last ${daily.length} days`}>
         {ticks.map((v) => (
           <g key={v}>
-            <line x1={pad.l} x2={w - pad.r} y1={y(v)} y2={y(v)} className="grid" />
+            <line x1={pad.l} x2={w - pad.r} y1={y(v)} y2={y(v)} className="gridline" />
             <text x={pad.l - 6} y={y(v) + 3} className="axis" textAnchor="end">{v}</text>
           </g>
         ))}
@@ -102,8 +102,11 @@ export default function DashboardPage() {
     return (
       <>
         <div className="page-head"><h1>Dashboard</h1></div>
-        <div className="skeleton" style={{ height: 120, marginBottom: 18 }} />
-        <div className="skeleton" style={{ height: 220 }} />
+        <div className="skeleton-stack">
+          <div className="skeleton" style={{ height: 110 }} />
+          <div className="skeleton" style={{ height: 210 }} />
+          <div className="skeleton" style={{ height: 160 }} />
+        </div>
       </>
     );
   }
@@ -125,6 +128,7 @@ export default function DashboardPage() {
 
       <div className="kpi-grid">
         <Kpi label="Confirmed live" value={t.confirmed}
+             tone={t.confirmed > 0 ? 'success' : undefined}
              sub={t.confirmed === t.published
                ? 'verified with the platform'
                : `${t.published - t.confirmed} awaiting confirmation`} />
@@ -134,15 +138,18 @@ export default function DashboardPage() {
              sub={t.drafts > 0 ? 'in Review' : 'nothing waiting'} />
         <Kpi label="Automations" value={`${activeAutos}/${d.automations.length}`}
              sub={activeAutos > 0 ? 'active' : 'all paused'} />
-        <Kpi label="Failed" value={t.failed + t.unconfirmed}
+        <Kpi label="Needs attention" value={t.failed + t.unconfirmed}
              sub={t.unconfirmed > 0 ? `${t.unconfirmed} unconfirmed` : 'publish errors'}
              tone={t.failed + t.unconfirmed > 0 ? 'danger' : undefined} />
       </div>
 
       {t.published > t.confirmed && (
         <div className="notice warn">
-          {t.published - t.confirmed} post(s) were accepted by the platform but not yet
-          confirmed as live. Figures here only count posts the platform has confirmed.
+          <span className="notice-icon"><NavIcon name="clock" size={16} /></span>
+          <span className="notice-body">
+            {t.published - t.confirmed} post(s) were accepted by the platform but not yet
+            confirmed as live. Figures here only count posts the platform has confirmed.
+          </span>
         </div>
       )}
 

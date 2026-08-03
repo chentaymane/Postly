@@ -226,8 +226,15 @@ export async function createZernioPost({
   if (target?.status === 'failed' || post.status === 'failed') {
     throw new Error(target?.error || post.error || 'Zernio publish failed');
   }
+  // The id and the public link are different things and must not be conflated.
+  // Returning the link as the id meant every immediately-published post stored
+  // a URL where its id belonged, so looking the post up afterwards ("did this
+  // actually go live?") and cancelling it both addressed /posts/<a full URL>
+  // and 404'd — posts sat unconfirmed forever and scheduled ones could not be
+  // cancelled.
   return {
-    post_id: target?.platformPostUrl || post._id || post.id || null,
+    post_id: post._id || post.id || null,
+    post_url: target?.platformPostUrl || null,
     raw: post,
   };
 }

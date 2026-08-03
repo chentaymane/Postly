@@ -927,8 +927,8 @@ const sameText = (a, b) => {
   return Boolean(x && y && (x.startsWith(y.slice(0, 40)) || y.startsWith(x.slice(0, 40))));
 };
 
-// Looks for the post on the account. Returns its id when found, null when it
-// definitely is not there, and undefined when we could not tell.
+// Looks for the post on the account. Returns { id, url } when found, null when
+// it definitely is not there, and undefined when we could not tell.
 export async function findPublishedPost({ conn, platform, content }) {
   const provider = conn.provider || 'direct';
   try {
@@ -938,7 +938,7 @@ export async function findPublishedPost({ conn, platform, content }) {
         (p) => isRecent(p.createdAt) && p.status !== 'failed' &&
           (sameText(p.title, content.pinTitle) || sameText(p.content, content.pinDescription))
       );
-      return hit ? hit.url || hit.id : null;
+      return hit ? { id: hit.id, url: hit.url || null } : null;
     }
     if (provider === 'socialapi') {
       const posts = await listRecentSocialApiPosts(25);
@@ -946,7 +946,7 @@ export async function findPublishedPost({ conn, platform, content }) {
         (p) => isRecent(p.createdAt) && p.status !== 'failed' &&
           sameText(p.content, platform === 'pinterest' ? content.pinDescription : content.fullMessage)
       );
-      return hit ? hit.id : null;
+      return hit ? { id: hit.id, url: null } : null;
     }
 
     if (platform === 'pinterest') {
@@ -960,7 +960,7 @@ export async function findPublishedPost({ conn, platform, content }) {
         (p) => isRecent(p.created_at) &&
           (sameText(p.title, content.pinTitle) || sameText(p.description, content.pinDescription))
       );
-      return hit ? hit.id : null;
+      return hit ? { id: hit.id, url: `https://www.pinterest.com/pin/${hit.id}/` } : null;
     }
 
     if (platform === 'instagram') {
@@ -969,19 +969,19 @@ export async function findPublishedPost({ conn, platform, content }) {
         ? 'https://graph.instagram.com/v21.0'
         : 'https://graph.facebook.com/v21.0';
       const res = await fetch(
-        `${graph}/${igUserId}/media?fields=id,caption,timestamp&limit=10&access_token=${encodeURIComponent(conn.access_token)}`,
+        `${graph}/${igUserId}/media?fields=id,caption,timestamp,permalink&limit=10&access_token=${encodeURIComponent(conn.access_token)}`,
         { signal: AbortSignal.timeout(15000) }
       );
       if (!res.ok) return undefined;
       const json = await res.json();
       const hit = (json.data || []).find((p) => isRecent(p.timestamp) && sameText(p.caption, content.caption));
-      return hit ? hit.id : null;
+      return hit ? { id: hit.id, url: hit.permalink || null } : null;
     }
 
     if (platform === 'facebook') {
       const pageId = conn.extra?.page_id || conn.account_id;
       const res = await fetch(
-        `https://graph.facebook.com/v21.0/${pageId}/feed?fields=id,message,created_time&limit=10&access_token=${encodeURIComponent(conn.access_token)}`,
+        `https://graph.facebook.com/v21.0/${pageId}/feed?fields=id,message,created_time,permalink_url&limit=10&access_token=${encodeURIComponent(conn.access_token)}`,
         { signal: AbortSignal.timeout(15000) }
       );
       if (!res.ok) return undefined;
@@ -989,7 +989,7 @@ export async function findPublishedPost({ conn, platform, content }) {
       const hit = (json.data || []).find(
         (p) => isRecent(p.created_time) && sameText(p.message, content.caption || content.fullMessage)
       );
-      return hit ? hit.id : null;
+      return hit ? { id: hit.id, url: hit.permalink_url || null } : null;
     }
   } catch {
     return undefined; // the check itself failed — still unknown
@@ -997,20 +997,37 @@ export async function findPublishedPost({ conn, platform, content }) {
   return undefined;
 }
 
-// Publishes previously generated content now, or schedules it (ISO datetime,
-// aggregator connections only — the aggregator does the timed delivery).
+// True when this connection can be handed a future time and be trusted to
+// release the post itself. Direct platform connections cannot: their APIs
+// publish on receipt. Those posts are held by Postly and sent at the minute
+// (see publishqueued.js), which is what the caller uses this to decide.
+export function canScheduleRemotely(conn) {
+  const provider = conn?.provider || 'direct';
+  return provider === 'zernio' || provider === 'socialapi';
+}
+
+// Publishes previously generated content now, or hands it to an aggregator
+// with a time. Always resolves to { post_id, post_url, raw }.
 export async function publishContent({ conn, platform, content, scheduledAt }) {
   const provider = conn.provider || 'direct';
 
-  const run = () => {
+  if (scheduledAt && !canScheduleRemotely(conn)) {
+    // A caller that reaches here has not made the hold/send decision. Failing
+    // loudly is right, but the message must say what to do about it — the old
+    // one ("scheduling is only supported for one-click connections") was the
+    // last thing a user saw before an auto automation stopped posting entirely.
+    throw new Error(
+      `${platform} is connected directly, so Postly holds the post and publishes it at the ` +
+      'scheduled minute itself — it cannot be handed to the platform in advance'
+    );
+  }
+
+  const run = async () => {
     if (provider === 'socialapi') {
       return publishViaAggregator(conn, content, platform, scheduledAt || undefined);
     }
     if (provider === 'zernio') {
       return publishViaZernio(conn, content, platform, scheduledAt || undefined);
-    }
-    if (scheduledAt) {
-      throw new Error('scheduling is only supported for one-click (aggregator) connections');
     }
     const publish = publishers[platform];
     if (!publish) throw new Error(`publishing to ${platform} is not implemented yet`);
@@ -1018,7 +1035,8 @@ export async function publishContent({ conn, platform, content, scheduledAt }) {
   };
 
   try {
-    return await run();
+    const result = await run();
+    return { post_url: null, ...result };
   } catch (e) {
     // Nothing to verify for a scheduled post — it was never meant to be live.
     if (scheduledAt || !isAmbiguousError(e)) throw e;
@@ -1027,7 +1045,11 @@ export async function publishContent({ conn, platform, content, scheduledAt }) {
     await new Promise((r) => setTimeout(r, 2500));
     const found = await findPublishedPost({ conn, platform, content });
     if (found) {
-      return { post_id: found, raw: { verified_after_timeout: true, error: e.message } };
+      return {
+        post_id: found.id,
+        post_url: found.url || null,
+        raw: { verified_after_timeout: true, error: e.message },
+      };
     }
     if (found === null) throw e; // confirmed absent — a genuine failure
 

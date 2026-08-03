@@ -2,113 +2,114 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
+import { NavIcon } from './BrandIcons';
 
-// Eight destinations do not fit a phone, and a row that scrolls sideways hides
-// the ones at the end. The day-to-day pages stay visible; setup pages live
-// behind a menu on desktop and the whole set behind a drawer on mobile.
-const PRIMARY = [
-  { href: '/dashboard', label: 'Dashboard' },
-  { href: '/create', label: 'Create' },
-  { href: '/review', label: 'Review' },
-  { href: '/automations', label: 'Automations' },
+// Grouped rather than ranked: the day-to-day pages and the setup pages are
+// different kinds of work, and a flat list of eight made every visit a search.
+const GROUPS = [
+  {
+    label: 'Publish',
+    links: [
+      { href: '/dashboard', label: 'Dashboard', icon: 'dashboard' },
+      { href: '/create', label: 'Create', icon: 'create' },
+      { href: '/review', label: 'Review', icon: 'review' },
+      { href: '/automations', label: 'Automations', icon: 'automation' },
+    ],
+  },
+  {
+    label: 'Setup',
+    links: [
+      { href: '/', label: 'Connections', icon: 'link' },
+      { href: '/history', label: 'History', icon: 'history' },
+      { href: '/settings/keys', label: 'API keys', icon: 'key' },
+      { href: '/settings', label: 'Settings', icon: 'settings' },
+    ],
+  },
 ];
 
-const SECONDARY = [
-  { href: '/', label: 'Connections' },
-  { href: '/history', label: 'History' },
-  { href: '/settings/keys', label: 'API keys' },
-  { href: '/settings', label: 'Settings' },
-];
+const ALL = GROUPS.flatMap((g) => g.links);
 
-const ALL = [...PRIMARY, ...SECONDARY];
+function isActive(pathname, href) {
+  if (href === '/') return pathname === '/';
+  // /settings must not light up while /settings/keys is open.
+  if (href === '/settings') return pathname === '/settings';
+  return pathname.startsWith(href);
+}
 
-export default function NavLinks() {
+function Link({ link, pathname, badge }) {
+  const active = isActive(pathname, link.href);
+  return (
+    <a href={link.href}
+       className={`navlink${active ? ' active' : ''}`}
+       aria-current={active ? 'page' : undefined}>
+      <NavIcon name={link.icon} />
+      {link.label}
+      {badge > 0 && <span className="nav-badge">{badge}</span>}
+    </a>
+  );
+}
+
+// Desktop sidebar navigation.
+export function SidebarNav({ badges = {} }) {
   const pathname = usePathname();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const menuRef = useRef(null);
+  return (
+    <>
+      {GROUPS.map((group) => (
+        <div className="nav-group" key={group.label}>
+          <p className="nav-label">{group.label}</p>
+          {group.links.map((l) => (
+            <Link key={l.href} link={l} pathname={pathname} badge={badges[l.href]} />
+          ))}
+        </div>
+      ))}
+    </>
+  );
+}
 
-  const isActive = (href) => (href === '/' ? pathname === '/' : pathname.startsWith(href));
+// Mobile drawer, opened from the top bar.
+export function DrawerNav({ badges = {} }) {
+  const pathname = usePathname();
+  const [open, setOpen] = useState(false);
+  const closeRef = useRef(null);
 
-  // Close the desktop menu on an outside click or Escape — a dropdown that
-  // traps the user is worse than no dropdown.
+  useEffect(() => { setOpen(false); }, [pathname]);
+
+  // A drawer over the page must not let the page behind it scroll, and Escape
+  // must always get the user out of it.
   useEffect(() => {
-    if (!menuOpen) return;
-    const onDown = (e) => { if (!menuRef.current?.contains(e.target)) setMenuOpen(false); };
-    const onKey = (e) => { if (e.key === 'Escape') setMenuOpen(false); };
-    document.addEventListener('mousedown', onDown);
+    if (!open) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
     document.addEventListener('keydown', onKey);
+    document.body.style.overflow = 'hidden';
+    closeRef.current?.focus();
     return () => {
-      document.removeEventListener('mousedown', onDown);
       document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = '';
     };
-  }, [menuOpen]);
-
-  // Route changes should always leave the navigation closed.
-  useEffect(() => { setMenuOpen(false); setDrawerOpen(false); }, [pathname]);
-
-  // A drawer over the page must not let the page behind it scroll.
-  useEffect(() => {
-    document.body.style.overflow = drawerOpen ? 'hidden' : '';
-    return () => { document.body.style.overflow = ''; };
-  }, [drawerOpen]);
+  }, [open]);
 
   return (
     <>
-      {/* desktop */}
-      <div className="nav-desktop">
-        {PRIMARY.map((l) => (
-          <a key={l.href} href={l.href}
-             className={`navlink${isActive(l.href) ? ' active' : ''}`}
-             aria-current={isActive(l.href) ? 'page' : undefined}>
-            {l.label}
-          </a>
-        ))}
-
-        <div className="nav-menu" ref={menuRef}>
-          <button className={`navlink nav-more${SECONDARY.some((l) => isActive(l.href)) ? ' active' : ''}`}
-                  onClick={() => setMenuOpen((v) => !v)}
-                  aria-expanded={menuOpen} aria-haspopup="menu">
-            More
-            <svg width="10" height="7" viewBox="0 0 12 8" aria-hidden="true"
-                 className={`chev${menuOpen ? ' up' : ''}`}>
-              <path d="M1 1.5 6 6.5l5-5" fill="none" stroke="currentColor"
-                    strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-          {menuOpen && (
-            <div className="nav-dropdown" role="menu">
-              {SECONDARY.map((l) => (
-                <a key={l.href} href={l.href} role="menuitem"
-                   className={`nav-dropitem${isActive(l.href) ? ' active' : ''}`}>
-                  {l.label}
-                </a>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* mobile */}
-      <button className="nav-burger" onClick={() => setDrawerOpen(true)}
-              aria-label="Open menu" aria-expanded={drawerOpen}>
+      <button className="nav-burger" onClick={() => setOpen(true)}
+              aria-label="Open menu" aria-expanded={open}>
         <span /><span /><span />
       </button>
 
-      {drawerOpen && (
-        <div className="drawer-scrim" onClick={() => setDrawerOpen(false)}>
+      {open && (
+        <div className="drawer-scrim" onClick={() => setOpen(false)}>
           <nav className="drawer" onClick={(e) => e.stopPropagation()} aria-label="Main">
             <div className="drawer-head">
-              <span className="drawer-title">Menu</span>
-              <button className="drawer-close" onClick={() => setDrawerOpen(false)}
+              <span className="nav-label" style={{ padding: 0 }}>Menu</span>
+              <button className="drawer-close" ref={closeRef} onClick={() => setOpen(false)}
                       aria-label="Close menu">×</button>
             </div>
-            {ALL.map((l) => (
-              <a key={l.href} href={l.href}
-                 className={`drawer-link${isActive(l.href) ? ' active' : ''}`}
-                 aria-current={isActive(l.href) ? 'page' : undefined}>
-                {l.label}
-              </a>
+            {GROUPS.map((group) => (
+              <div className="nav-group" key={group.label}>
+                <p className="nav-label">{group.label}</p>
+                {group.links.map((l) => (
+                  <Link key={l.href} link={l} pathname={pathname} badge={badges[l.href]} />
+                ))}
+              </div>
             ))}
           </nav>
         </div>
@@ -116,3 +117,6 @@ export default function NavLinks() {
     </>
   );
 }
+
+export default SidebarNav;
+export { ALL as NAV_LINKS };
