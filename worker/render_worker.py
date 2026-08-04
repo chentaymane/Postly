@@ -71,7 +71,8 @@ def report(job_id, *, video_url=None, duration=None, error=None) -> None:
     api("POST", f"/api/render/jobs/{job_id}", json=body)
 
 
-def handle(job: dict) -> None:
+def handle(job: dict) -> bool:
+    """Renders one job. Returns True when the MP4 was hosted and reported."""
     job_id = job["id"]
     log.info("job %s (%s): %d scenes", job_id, job.get("platform"), len(job.get("scenes", [])))
     workdir = Path(tempfile.mkdtemp(prefix=f"postly-{job_id}-"))
@@ -81,6 +82,7 @@ def handle(job: dict) -> None:
         url = upload_video(mp4, f"postly-{job_id}.mp4")
         report(job_id, video_url=url, duration=duration)
         log.info("job %s ready: %s", job_id, url)
+        return True
     except Exception as e:                           # noqa: BLE001
         # Every failure is reported, not just the ones we predicted: an
         # unexpected exception used to escape here and leave the draft claimed,
@@ -91,6 +93,7 @@ def handle(job: dict) -> None:
             report(job_id, error=str(e))
         except Exception as report_error:            # noqa: BLE001 - last resort
             log.error("could not report job %s: %s", job_id, report_error)
+        return False
     finally:
         if KEEP_FILES:
             log.info("job %s files kept in %s", job_id, workdir)
@@ -98,13 +101,16 @@ def handle(job: dict) -> None:
             shutil.rmtree(workdir, ignore_errors=True)
 
 
-def tick(seen: set | None = None) -> int:
+def tick(seen: set | None = None, failures: list | None = None) -> int:
     """Claims and renders a batch. Returns how many jobs were handled.
 
     `seen` collects the ids already attempted in this process. A job that fails
     goes back in the queue for another try later, so without it a single
     draining run would burn every retry the job had within a few seconds —
     against exactly the transient condition the retries exist to outlast.
+
+    `failures` collects the ids that did not produce a hosted MP4, so a caller
+    that runs to completion can exit with the truth about what happened.
     """
     try:
         jobs = claim_jobs()
@@ -118,7 +124,8 @@ def tick(seen: set | None = None) -> int:
         seen.update(j["id"] for j in fresh)
         jobs = fresh
     for job in jobs:
-        handle(job)
+        if not handle(job) and failures is not None:
+            failures.append(job["id"])
     return len(jobs)
 
 
@@ -139,9 +146,19 @@ def main() -> int:
     log.info("worker ready — app %s, source %s, polling every %ss", APP_URL, SOURCE, POLL_SECONDS)
     if args.once:
         seen: set = set()
-        while tick(seen):
+        failures: list = []
+        while tick(seen, failures):
             pass
-        log.info("drained %d job(s)", len(seen))
+        log.info("drained %d job(s), %d failed", len(seen), len(failures))
+
+        # A drain in which nothing rendered must not report success. Every
+        # failure is already recorded against its own draft, so the run looked
+        # green while five videos in a row failed to upload — which is how a
+        # broken storage token went unnoticed. The exit code is the only part
+        # of this anyone sees without opening the log.
+        if failures:
+            log.error("jobs that did not produce a video: %s", failures)
+            return 1
         return 0
 
     tick()  # don't make the first job wait a full interval
