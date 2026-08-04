@@ -6,10 +6,22 @@
 # repo, and five minutes is its finest granularity, which is exactly what the
 # tick wants.
 #
-# GitHub runs scheduled workflows on a best-effort basis and delays them under
-# load, sometimes by 10-20 minutes. That is survivable precisely because the
-# tick catches up missed slots rather than losing them — see the automation's
-# "If a run is missed" setting.
+# IMPORTANT: GitHub does not honour this interval, and not by a little.
+# Measured over 22 hours on this repo, `*/5` produced 11 runs — an average gap
+# of two hours, the worst 3h24. GitHub treats `schedule` as best-effort and
+# deprioritises it heavily; asking for a shorter interval does not help.
+#
+# So this workflow is a SAFETY NET, not the driver. A post due at 09:00 would
+# otherwise go out whenever the next run happened to land. Drive the real
+# cadence from an external pinger that honours its own schedule —
+# cron-job.org is free, allows one-minute intervals, and has no quota:
+#
+#   URL     https://<your-app>/api/cron/autopilot
+#   header  x-cron-secret: <the CRON_SECRET value>
+#   every   5 minutes
+#
+# Missed slots are still caught up when this net does fire, so nothing is lost
+# either way — it just goes out late without a real driver.
 #
 # Setup, once:
 #   Settings -> Secrets and variables -> Actions
