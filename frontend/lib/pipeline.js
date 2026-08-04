@@ -48,13 +48,32 @@ export function buildPrompts({ theme, productName, description, tone, forPintere
       '4. CTA invites interaction (comment/share/tag someone), not purchase.\n',
   };
 
-  const systemPrompt =
-    'You are a social media content strategist and copywriter for small online stores. Rules you always follow:\n' +
-    (typeRules[postType] || typeRules.promo) +
-    '5. Hashtags: 6-10, mix of intent-based and niche community tags. No giant generic tags like #love.\n' +
-    '6. Sound like a real person talking to a friend — zero corporate phrases ("elevate", "unleash", "discover the magic").\n' +
-    (format === 'video'
-      ? '7. SCRIPT: write "scenes" — an array of exactly 5 or 6 objects, each { "narration": string, "image_prompt": string }, telling ONE continuous story in order. ' +
+  // What actually earns attention, stated as constraints rather than adjectives.
+  // "Write a good hook" produces the same four openers every time; a word limit,
+  // a banned list and a demand for one concrete detail produce copy that reads
+  // like a person wrote it about this product in particular.
+  const craftRules =
+    '5. THE FIRST LINE IS THE WHOLE POST. Nine in ten readers see only that. ' +
+    'Maximum 12 words, no preamble, no "Are you looking for", no emoji before the first word. ' +
+    'It must work as a standalone sentence that makes someone stop.\n' +
+    '6. BE SPECIFIC, NOT DESCRIPTIVE. Every post must contain at least one concrete detail — a number, ' +
+    'a time of day, a named moment, a physical object ("the 20 minutes before dinner", "47 pages", ' +
+    '"the third meltdown of the afternoon"). Vague warmth is invisible; specifics are what get saved.\n' +
+    '7. BANNED, never write these: "elevate", "unleash", "discover the magic", "dive in", "game-changer", ' +
+    '"look no further", "in today\'s world", "we all know that", "the perfect way to", "say goodbye to", ' +
+    '"transform your", "level up", "must-have", "curated". If a sentence could sell anything, rewrite it.\n' +
+    '8. Write at a 6th-grade reading level. Short sentences. Line breaks between thoughts — ' +
+    'a wall of text is never read on a phone.\n' +
+    '9. Hashtags: 6-10, mixing buyer-intent tags with small niche-community tags. ' +
+    'No tag with over 10 million posts (#love, #instagood, #photooftheday) — those reach nobody.\n' +
+    '10. Sound like one real person talking to one real person. Contractions, not corporate.\n';
+
+  // Per-format output contract. The image direction lives here rather than in
+  // the style suffix because the model knows what THIS post is about — a generic
+  // "cosy lifestyle photo" suffix cannot invent the moment that matches the copy.
+  const formatRules =
+    format === 'video'
+      ? '11. SCRIPT: write "scenes" — an array of exactly 5 or 6 objects, each { "narration": string, "image_prompt": string }, telling ONE continuous story in order. ' +
         '"narration" is the spoken voiceover for that scene: ONE sentence of 12-20 words, plain spoken English, no emojis, no hashtags, no stage directions, no "scene 1" labels — it is read aloud word for word. ' +
         'The first narration is the hook (a question or a surprising fact), the middle ones build the story or give the tips, the last one is the spoken call to action. ' +
         '"image_prompt" is a one-sentence photo scene illustrating what is being said, framed VERTICALLY (portrait). ' +
@@ -63,15 +82,31 @@ export function buildPrompts({ theme, productName, description, tone, forPintere
         '"hashtags" (array of 6-10 strings, no # symbol), "cta" (string, one short line), ' +
         '"title" (string, max 80 chars: a punchy title for the video), "scenes" (array of 5-6 objects).'
       : format === 'carousel'
-      ? '7. IMAGES: write "image_prompts" — an array of exactly 3 or 4 one-sentence photo scene descriptions that tell ONE continuous story in order. ' +
-        'For a promo post: first slide shows the relatable problem (e.g. a bored child slumped on the sofa staring at a phone), middle slide(s) show the turning point with the product (the same child colouring, absorbed and calm), last slide shows the proud payoff (the same child grinning and holding up a finished colourful page). ' +
-        'For a tips post: one scene illustrating each tip, in the same order as the tips. ' +
-        'CRITICAL FOR CONSISTENCY: invent ONE main character and repeat the exact same physical description word-for-word in every scene (e.g. "a 5-year-old girl with curly brown hair in a yellow sweater"), and keep the same home setting. Never mention brands, logos, or any text appearing in the images.\n' +
-        'Respond ONLY with a valid JSON object with exactly these keys: "caption" (string: hook line, blank line, then the body per the rules above), ' +
-        '"hashtags" (array of 6-10 strings, no # symbol), "cta" (string, one short line), "image_prompts" (array of 3-4 strings).'
-      : '7. IMAGE: also write "image_prompt" — one vivid sentence describing a photograph that would stop the scroll for this exact post. Describe a REAL-LIFE SCENE with a person and emotion (e.g. "a smiling 5-year-old girl colouring a lion picture with crayons at a sunny kitchen table, cosy morning light"). Concrete subject + action + setting + light. Never mention brands, logos, text, or words appearing in the image.\n' +
-        'Respond ONLY with a valid JSON object with exactly these keys: "caption" (string: hook line, blank line, then the body per the rules above), ' +
-        '"hashtags" (array of 6-10 strings, no # symbol), "cta" (string, one short line), "image_prompt" (string, one sentence).') +
+        ? '11. IMAGES: write "image_prompts" — an array of exactly 3 or 4 one-sentence photo scenes telling ONE story in order.\n' +
+          'SLIDE 1 IS THE ONLY SLIDE MOST PEOPLE SEE. It is the thumbnail in the feed, so it must earn the swipe on its own: ' +
+          'ONE person filling most of the frame, a readable facial expression (frustration, delight, surprise), ' +
+          'shot close — head-and-shoulders or waist-up, never a wide room. A tidy empty room does not stop anyone.\n' +
+          'For a promo post: slide 1 is the problem on someone\'s face; the middle slide(s) are the turning point with the product in use; ' +
+          'the last is the payoff, the same person visibly happier, holding the result up.\n' +
+          'For a tips post: one scene per tip, in the same order as the tips.\n' +
+          'CRITICAL FOR CONSISTENCY: invent ONE main character and repeat their exact physical description word-for-word in every scene ' +
+          '(e.g. "a 5-year-old girl with curly brown hair in a yellow sweater"), and keep the same setting and time of day throughout. ' +
+          'Never mention brands, logos, or any text appearing in the images.\n' +
+          'Respond ONLY with a valid JSON object with exactly these keys: "caption" (string: hook line, blank line, then the body per the rules above), ' +
+          '"hashtags" (array of 6-10 strings, no # symbol), "cta" (string, one short line), "image_prompts" (array of 3-4 strings).'
+        : '11. IMAGE: write "image_prompt" — one vivid sentence describing the photograph that would stop the scroll for THIS post. ' +
+          'It must show ONE person, close enough to read their face, mid-action and mid-emotion — not a styled flat-lay and not an empty room. ' +
+          'Name the subject, what they are doing, where, and the light ' +
+          '(e.g. "a 5-year-old girl grinning as she colours a lion with crayons at a sunny kitchen table, morning light across the paper"). ' +
+          'Never mention brands, logos, text, or words appearing in the image.\n' +
+          'Respond ONLY with a valid JSON object with exactly these keys: "caption" (string: hook line, blank line, then the body per the rules above), ' +
+          '"hashtags" (array of 6-10 strings, no # symbol), "cta" (string, one short line), "image_prompt" (string, one sentence).';
+
+  const systemPrompt =
+    'You are a social media content strategist and copywriter for small online stores. Rules you always follow:\n' +
+    (typeRules[postType] || typeRules.promo) +
+    craftRules +
+    formatRules +
     pinterestKeys +
     ' No markdown, no code fences, no extra keys.';
 
@@ -117,11 +152,29 @@ export function buildPrompts({ theme, productName, description, tone, forPintere
 
 // Wraps the model-written scene with a consistent photographic treatment.
 // The style suffix is fixed so the feed looks coherent; the scene varies.
-export function finishImagePrompt(scene, tone = 'warm') {
+//
+// `hero` is for the frame that has to survive being a thumbnail — slide 1 of a
+// carousel, or a single image. In a feed that frame competes at about 4cm wide
+// against everything else on the phone, so it is directed differently: the
+// subject fills it, the face is legible, and the background is thrown away.
+// A pretty wide shot of a room is invisible at that size.
+export function finishImagePrompt(scene, tone = 'warm', { hero = false } = {}) {
+  const framing = hero
+    ? 'tight compelling composition, subject fills the frame, face clearly visible and expressive, ' +
+      'strong subject-background separation, background thrown far out of focus, 85mm portrait lens, '
+    : 'natural candid framing, 50mm lens, ';
+
   return (
-    `${scene}, authentic candid lifestyle photography, ${tone} mood, natural light, ` +
-    'shallow depth of field, rich warm colors, shot on 50mm lens, aspirational but believable, ' +
-    'absolutely no text, no words, no letters, no logos, no watermark'
+    `${scene}, authentic documentary lifestyle photograph, ${tone} mood, ` +
+    framing +
+    'soft directional window light, gentle highlight falloff, rich true-to-life colour, ' +
+    'crisp focus on the eyes, fine skin texture, shot on Kodak Portra 400, ' +
+    'real unposed moment, not a stock photo, not a studio setup, ' +
+    // Repeated and varied on purpose: diffusion models leak text into images at
+    // the slightest excuse, and a caption baked into the picture is the one
+    // defect that makes a post unusable rather than merely mediocre.
+    'absolutely no text, no words, no letters, no numbers, no captions, no logos, ' +
+    'no watermark, no signature, no borders, no collage, no split screen'
   );
 }
 
@@ -432,10 +485,12 @@ export async function generateImage(imagePrompt, dims, { models = ['flux', 'turb
 // dropped rather than published as a mismatched set — except for video, where
 // each frame is scaled to the canvas anyway and dropping one would leave a
 // narration line with nothing on screen (`dropMismatched: false`).
-export async function generateSlides(scenes, { tone, dims, model = 'flux', dropMismatched = true }) {
+export async function generateSlides(scenes, { tone, dims, model = 'flux', dropMismatched = true, heroFirst = true }) {
   const seedBase = Math.floor(Math.random() * 1000000);
+  // Only the first slide is the thumbnail; the rest are seen after the swipe,
+  // where a wider, calmer frame reads better than another tight close-up.
   const render = (scene, i, attempt) =>
-    generateImage(finishImagePrompt(scene, tone), dims, {
+    generateImage(finishImagePrompt(scene, tone, { hero: heroFirst && i === 0 }), dims, {
       models: [model],
       seed: seedBase + i * 101 + attempt * 7919,
     });
@@ -886,8 +941,12 @@ export async function generateContent({ platform, input, brand }) {
     return { ...copy, imageUrl: imageUrls[0], imageUrls, subject: prompts.subject };
   }
 
+  // A single image IS the thumbnail, so it always gets the hero treatment.
   const scene = copy.imageScene || copy.imageScenes?.[0] || prompts.imagePrompt;
-  const img = await generateImage(finishImagePrompt(scene, input.tone), imageDimsFor(platform, input.format));
+  const img = await generateImage(
+    finishImagePrompt(scene, input.tone, { hero: true }),
+    imageDimsFor(platform, input.format)
+  );
   return { ...copy, imageUrl: img.imageUrl, imageUrls: [img.imageUrl], subject: prompts.subject };
 }
 
