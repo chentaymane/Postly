@@ -5,6 +5,10 @@ import { workerAuthorized, MAX_RENDER_ATTEMPTS } from '../../../../../lib/render
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+// How far past its slot a video may still publish unattended. Beyond this the
+// moment has gone and the post belongs to a human decision, not a callback.
+const STALE_SLOT_MS = 6 * 60 * 60 * 1000;
+
 // The render worker reports back here: { video_url } when the MP4 is hosted
 // and ready to publish, or { error } when rendering failed. The draft then
 // shows up on the Review page as a playable video ready for approval.
@@ -81,6 +85,30 @@ export async function POST(request, { params }) {
     if (autoRows[0]?.approval === 'auto') {
       const slotAt = post.scheduled_at ? new Date(post.scheduled_at) : null;
       const stillAhead = slotAt && slotAt.getTime() > Date.now() + 60000;
+
+      // A slot that passed *days* ago is not a late post, it is a stale one.
+      // Rendering can be blocked for a long time — a missing token, a runner
+      // that never ran — and when it finally works the whole backlog becomes
+      // publishable in the same second. Posting a week of old drafts at once,
+      // unattended, is never the intent, so anything this far past its moment
+      // is handed back to the user instead.
+      const staleMs = slotAt ? Date.now() - slotAt.getTime() : 0;
+      if (staleMs > STALE_SLOT_MS) {
+        await query(
+          `UPDATE queued_posts
+              SET video_error = $2, updated_at = now()
+            WHERE id = $1 AND video_error IS NULL`,
+          [
+            post.id,
+            'Rendered long after its scheduled time, so it was not posted automatically. ' +
+            'Publish it from Review if it is still worth sending.',
+          ]
+        );
+        return NextResponse.json({
+          ok: true, video_status: 'ready', published: false, post_status: 'draft',
+          skipped: 'slot too old — left in Review',
+        });
+      }
 
       const { publishQueuedPost } = await import('../../../../../lib/publishqueued');
       const result = await publishQueuedPost(post, {
