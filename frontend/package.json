@@ -10,6 +10,7 @@
     "db:setup": "node scripts/db-setup.mjs"
   },
   "dependencies": {
+    "@vercel/analytics": "^2.0.1",
     "bcryptjs": "^3.0.3",
     "next": "^14.2.35",
     "next-auth": "^5.0.0-beta.32",

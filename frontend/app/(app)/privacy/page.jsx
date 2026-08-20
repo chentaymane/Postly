@@ -40,6 +40,12 @@ export default function PrivacyPage() {
           a record of each publish attempt including its status, the post ID returned by the
           platform, and any error message.
         </li>
+        <li>
+          <strong>Usage measurement.</strong> We count page views and visits using Vercel
+          Web Analytics. It records the page visited, referrer, country, and the general
+          device and browser type. It does not use cookies, does not follow you to other
+          sites, and does not build a profile of you.
+        </li>
       </ul>
       <p>
         We do not collect payment details, and we do not use advertising or
@@ -72,6 +78,7 @@ export default function PrivacyPage() {
           the post you asked us to publish, on your behalf.
         </li>
         <li><strong>Neon</strong> (database hosting, United States) and <strong>Vercel</strong> (application hosting) — store and run the Service.</li>
+        <li><strong>Vercel Web Analytics</strong> — counts page views. Cookieless, and it receives no account data.</li>
       </ul>
 
       <h2>Data retention and deletion</h2>

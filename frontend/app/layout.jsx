@@ -1,4 +1,5 @@
 import { Inter } from 'next/font/google';
+import { Analytics } from '@vercel/analytics/next';
 import './globals.css';
 
 // Self-hosted by next/font: no request to Google at runtime, and the metrics
@@ -40,7 +41,13 @@ export default function RootLayout({ children }) {
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
       </head>
-      <body>{children}</body>
+      <body>
+        {children}
+        {/* Vercel Web Analytics: page views and visitor counts, no cookies and
+            no cross-site identifiers. It compiles to nothing outside Vercel, so
+            a self-hosted fork carries no tracking it did not ask for. */}
+        <Analytics />
+      </body>
     </html>
   );
 }
