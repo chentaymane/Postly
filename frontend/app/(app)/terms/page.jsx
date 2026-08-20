@@ -4,7 +4,10 @@ export const metadata = {
 };
 
 const UPDATED = 'July 2026';
-const CONTACT = 'chentaymane234@gmail.com';
+// Whoever runs this deployment is the data controller, not whoever wrote the
+// code. A hardcoded address would point every fork's users at the original
+// author, which is wrong both legally and practically.
+const CONTACT = process.env.LEGAL_CONTACT_EMAIL || 'you@example.com';
 
 export default function TermsPage() {
   return (

@@ -1,6 +1,18 @@
 # Postly
 
-One-click AI marketing content generation & multi-platform social publishing.
+**Open-source, self-hosted social media autopilot.** Describe your business
+once; Postly writes the posts, makes the artwork, and publishes them on a
+schedule — to Pinterest, Instagram, Facebook, LinkedIn, Threads, YouTube and
+TikTok.
+
+[![Licence: AGPL v3](https://img.shields.io/badge/licence-AGPL--3.0-blue.svg)](LICENSE)
+
+It runs free: Vercel's hobby tier, Neon's free Postgres, a free Groq key, and
+GitHub Actions for the scheduler and video rendering. No paid dependency is
+required to run the whole thing for yourself.
+
+It is **multi-tenant by design** — every connection, post and API key belongs to
+a `user_id` — so it works equally as a personal tool or as the basis of a SaaS.
 
 Enter a theme or product name, pick your connected accounts, and Postly:
 
@@ -54,7 +66,7 @@ per user. Auth is Auth.js with email/password (bcrypt) and JWT sessions.
 | Concern          | Choice                                                  |
 |------------------|---------------------------------------------------------|
 | App + API        | Next.js 14 (App Router)                                 |
-| Text generation  | Groq (primary) → OpenRouter (fallback)                   |
+| Text generation  | Groq → OpenAI → Gemini → Anthropic, whichever you hold a key for |
 | Image generation | Pollinations.ai (`flux` → `turbo` fallback), no API key  |
 | Voiceover        | Piper TTS, offline, `en_US-ryan-medium` (free)          |
 | Video editing    | FFmpeg — Ken Burns motion, crossfades, burned captions   |
@@ -83,9 +95,14 @@ Required in `.env.local`:
 - `DATABASE_URL` — a free [Neon](https://neon.com) project's **pooled** connection string
 - `AUTH_SECRET` — signs sessions; generate with
   `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`
-- `GROQ_API_KEY` — free key from [console.groq.com/keys](https://console.groq.com/keys)
+- **One** AI key: `GROQ_API_KEY` (free, [console.groq.com/keys](https://console.groq.com/keys)),
+  or `OPENAI_API_KEY` / `GEMINI_API_KEY` / `ANTHROPIC_API_KEY`. Do **not** pin a
+  `*_MODEL` variable — Postly asks each provider what it currently serves and
+  picks the best available. A pinned id becomes an outage the day it is retired.
 - `APP_BASE_URL` — `http://localhost:3000` locally (auto-detected on Vercel)
 - `CRON_SECRET` — authorises the scheduler tick; without it automations never run
+- `CREDENTIALS_KEY` — encrypts users' stored API keys (falls back to `AUTH_SECRET`)
+- `LEGAL_CONTACT_EMAIL` — shown on the Privacy and Terms pages
 - Per platform: `<PLATFORM>_CLIENT_ID` / `_CLIENT_SECRET`
 
 ## Connecting a platform
@@ -259,6 +276,77 @@ video drafts simply sit and wait.
 - [x] Publish verification so a timeout is never reported as a failure
 - [x] Automations in the user's own timezone, DST-stable
 - [x] Idempotent scheduler with catch-up, retries and a run log
-- [ ] X, LinkedIn connectors
+- [x] TikTok (via the aggregator; video only)
+- [ ] X, LinkedIn direct connectors
 - [ ] Branding overlay (logo/text on generated images)
-- [ ] TikTok
+
+## Making it your own
+
+Nothing in the prompts is tied to a particular business. Everything that shapes
+the writing comes from the user's own profile:
+
+| Where | What it controls |
+|-------|------------------|
+| **Settings → Business type** | A preset that fills the empty fields — printables, e-commerce, services, SaaS, food, creator, local |
+| **Settings → Your own rules** | Instructions applied to *every* post, e.g. "never mention discounts", "always say instant download" |
+| **Settings → Language** | Captions, hashtags and titles are written in it |
+| **Settings → Words to never use** | A hard ban list |
+| **Automations → Extra rules** | Added *on top of* the brand rules for one stream only |
+
+The brand rules and the automation rules are concatenated, not substituted: a
+brand-wide rule cannot be silently lost by an automation that sets its own.
+
+Add a preset by editing [`frontend/lib/niches.js`](frontend/lib/niches.js) —
+it is a plain object, and `custom_prompt` is where the craft of a trade lives.
+
+## How the scheduling works
+
+The part most likely to surprise you, so it is worth stating plainly.
+
+- Posting times are **local wall-clock** in each automation's own IANA timezone,
+  so 09:00 stays 09:00 across daylight saving.
+- A **scheduler tick** runs every few minutes. It generates the posts whose
+  slots are due (catching up ones that were missed), publishes posts held for a
+  specific minute, retries transient failures on a backoff, and reads back what
+  the platforms actually did.
+- Every unit of work is guarded by a slot key or a status transition, so running
+  the tick twice, late, or by hand is safe.
+
+**Vercel's Hobby plan only accepts a daily cron expression** — a sub-daily one
+does not degrade, it fails the whole deployment. So `vercel.json` asks for a
+daily backstop and the real cadence comes from
+[`.github/workflows/scheduler.yml`](.github/workflows/scheduler.yml).
+
+GitHub delays scheduled workflows heavily: measured on this repo, `*/5` produced
+**11 runs in 22 hours**. That is survivable only because missed slots are caught
+up. For posts that must land on the minute, point a real pinger
+([cron-job.org](https://cron-job.org) is free) at `/api/cron/autopilot` with the
+`x-cron-secret` header.
+
+## Contributing
+
+Issues and pull requests are welcome.
+
+```bash
+git clone https://github.com/<you>/Postly && cd Postly/frontend
+npm install && cp .env.example .env.local   # fill in DATABASE_URL + one AI key
+npm run db:setup && npm run dev
+```
+
+- `npm run build` must pass before a PR.
+- The schema is **idempotent** — add `ALTER TABLE ... IF NOT EXISTS` to
+  `lib/schema.sql` rather than writing migration files. `npm run db:setup` is
+  safe to re-run.
+- Comments here explain *why*, not *what*. If a line exists because something
+  broke, say what broke — most of the awkward code in this repo is load-bearing.
+- No secrets in commits. `.env`, `.env.local`, `*.pem` and `*.key` are ignored;
+  keep it that way.
+
+## Licence
+
+[GNU AGPL v3](LICENSE).
+
+You may use, modify and self-host this freely. If you run a **modified** version
+as a network service, the AGPL requires you to publish your changes under the
+same licence. Running it unmodified, or using it privately, carries no such
+obligation.
