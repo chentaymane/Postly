@@ -20,14 +20,17 @@ export async function GET() {
   let connections = [];
   try {
     const { rows } = await query(
-      `SELECT id, platform, account_name, account_id, status,
+      // Disconnected rows are included deliberately. A connection the connector
+      // has dropped used to vanish from this list, so the account simply stopped
+      // posting with nothing on screen to explain why.
+      `SELECT id, platform, account_name, account_id, status, last_error, checked_at,
               extra->>'board_id' AS board_id, extra->>'board_name' AS board_name,
               COALESCE(extra->'boards', '[]'::jsonb) AS boards,
               extra->>'page_name' AS page_name, extra->>'ig_username' AS ig_username,
               updated_at
          FROM social_connections
-        WHERE status = 'connected' AND user_id = $1
-        ORDER BY updated_at DESC`,
+        WHERE status IN ('connected', 'disconnected') AND user_id = $1
+        ORDER BY (status = 'connected') DESC, updated_at DESC`,
       [userId]
     );
     connections = rows;

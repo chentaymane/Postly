@@ -130,8 +130,12 @@ async function runSlot(automation, { platform, slot, brand, index, rotation }) {
   // the run went "partial", Instagram published, TikTok silently did not, and
   // the reason was buried in one long detail string.
   if (!platformSupportsFormat(platform, automation.format)) {
+    // Not a failure of the run — a standing mismatch in the configuration. It
+    // was counted as one, so an automation posting happily to two platforms
+    // reported "failed" every time because a third could not take the format,
+    // and a real fault became impossible to spot among the noise.
     return {
-      platform, slot: slot.key, ok: false,
+      platform, slot: slot.key, ok: false, misconfigured: true,
       error: formatMismatchReason(platform, automation.format),
     };
   }
@@ -338,13 +342,18 @@ export async function runAutomation(automation, {
   const counts = {
     generated: results.filter((r) => r.ok && !r.skipped).length,
     published: results.filter((r) => r.ok && (r.status === 'published' || r.status === 'scheduled')).length,
-    failed: results.filter((r) => !r.ok).length,
+    failed: results.filter((r) => !r.ok && !r.misconfigured).length,
   };
 
-  const attempted = results.filter((r) => !r.skipped);
+  // A slot already made, and a platform that can never take this format, are
+  // both excluded from the verdict: neither says anything about whether this
+  // run worked.
+  const attempted = results.filter((r) => !r.skipped && !r.misconfigured);
   const okCount = attempted.filter((r) => r.ok).length;
+  const misconfigured = results.filter((r) => r.misconfigured).length;
   const runStatus =
-    attempted.length === 0 ? 'skipped'
+    attempted.length === 0
+      ? (misconfigured ? 'misconfigured' : 'skipped')
       : okCount === 0 ? 'failed'
         : okCount === attempted.length ? 'ok' : 'partial';
 

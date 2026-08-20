@@ -38,7 +38,10 @@ function Dashboard() {
 
   const byPlatform = {};
   for (const c of data.connections) (byPlatform[c.platform] ||= []).push(c);
-  const liveCount = data.platforms.filter((p) => (byPlatform[p.key] || []).length > 0).length;
+  const isLive = (c) => c.status === 'connected';
+  const liveCount = data.platforms.filter(
+    (p) => (byPlatform[p.key] || []).some(isLive)
+  ).length;
 
   return (
     <>
@@ -61,7 +64,9 @@ function Dashboard() {
         <div className="grid">
           {data.platforms.map((p) => {
             const conns = byPlatform[p.key] || [];
-            const isConnected = conns.length > 0;
+            // A row exists for a dropped account too, so "connected" has to mean
+            // the connector still recognises it — not merely that we once did.
+            const isConnected = conns.some(isLive);
 
             return (
               <div className="card" key={p.key}>
@@ -87,6 +92,17 @@ function Dashboard() {
                       @{c.account_name || c.account_id}
                       {p.key === 'instagram' && c.page_name && ` · via ${c.page_name}`}
                     </p>
+
+                    {/* Whatever is actually wrong with this account, said here.
+                        A Pinterest account with no boards, or one the connector has
+                        dropped, used to look identical to a healthy one and only
+                        revealed itself as a failed post hours later. */}
+                    {c.last_error && (
+                      <div className={`notice ${c.status === 'connected' ? 'warn' : 'err'}`}
+                           style={{ marginTop: 10, marginBottom: 0 }}>
+                        <span className="notice-body">{c.last_error}</span>
+                      </div>
+                    )}
 
                     {p.key === 'pinterest' && c.boards?.length > 0 && (
                       <div className="field" style={{ marginTop: 12 }}>

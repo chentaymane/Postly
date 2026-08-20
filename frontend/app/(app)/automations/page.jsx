@@ -708,7 +708,11 @@ export default function AutomationsPage() {
       const a = await ra.json();
       const c = await rc.json();
       const h = rh.ok ? await rh.json() : null;
-      const connectedSet = new Set((c.connections || []).map((x) => x.platform));
+      // Only genuinely live connections count: the endpoint also returns ones
+      // the connector has dropped, so that the Connections page can explain them.
+      const connectedSet = new Set(
+        (c.connections || []).filter((x) => x.status === 'connected').map((x) => x.platform)
+      );
       setAutomations(a.automations || []);
       setPlatforms((c.platforms || []).map((p) => ({ ...p, connected: connectedSet.has(p.key) })));
       setHealth(h);
