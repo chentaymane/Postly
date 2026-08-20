@@ -341,7 +341,7 @@ function AutomationCard({ a, platforms, browserZone, onChanged }) {
             <span className="notice-icon"><NavIcon name="alert" size={16} /></span>
             <span className="notice-body">
               Not connected: {missing.join(', ')} — these are skipped every run.{' '}
-              <a href="/">Connect them →</a>
+              <a href="/connections">Connect them →</a>
             </span>
           </div>
         )}

@@ -473,3 +473,25 @@ ALTER TABLE social_connections
 -- A key that will not decrypt is neither valid nor invalid — it is unreadable,
 -- and the user must re-enter it. Without its own state it was silently skipped.
 COMMENT ON COLUMN user_credentials.status IS 'unverified | ok | invalid | unreadable';
+
+-- ---------------------------------------------------------------------------
+-- Social sign-in.
+--
+-- A user who signs in with Google never chooses a password, so the column that
+-- required one has to allow its absence. Nullable rather than a sentinel hash:
+-- a fake bcrypt string would be a password nobody knows but the login path
+-- would still try to compare against it.
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS image TEXT;
+-- Which providers this account can sign in with: {password, google}. An account
+-- created by Google and later given a password can use either, so it is a set
+-- rather than a single value.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_providers TEXT[] NOT NULL DEFAULT '{password}';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
+
+-- Existing rows all got in with a password.
+UPDATE users SET auth_providers = '{password}'
+ WHERE auth_providers IS NULL OR cardinality(auth_providers) = 0;

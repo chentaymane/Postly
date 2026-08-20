@@ -2,7 +2,7 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { PlatformIcon } from '../../components/BrandIcons';
+import { PlatformIcon } from '../../../components/BrandIcons';
 
 function Dashboard() {
   const [data, setData] = useState({ platforms: [], connections: [], baseUrl: '' });

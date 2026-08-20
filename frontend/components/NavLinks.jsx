@@ -19,7 +19,7 @@ const GROUPS = [
   {
     label: 'Setup',
     links: [
-      { href: '/', label: 'Connections', icon: 'link' },
+      { href: '/connections', label: 'Connections', icon: 'link' },
       { href: '/history', label: 'History', icon: 'history' },
       { href: '/settings/keys', label: 'API keys', icon: 'key' },
       { href: '/settings', label: 'Settings', icon: 'settings' },
@@ -30,7 +30,6 @@ const GROUPS = [
 const ALL = GROUPS.flatMap((g) => g.links);
 
 function isActive(pathname, href) {
-  if (href === '/') return pathname === '/';
   // /settings must not light up while /settings/keys is open.
   if (href === '/settings') return pathname === '/settings';
   return pathname.startsWith(href);

@@ -246,7 +246,7 @@ export default function CreatePage() {
                 })}
               </div>
               {connected.size === 0 && (
-                <p className="hint">No accounts connected yet. <a href="/">Connect one →</a></p>
+                <p className="hint">No accounts connected yet. <a href="/connections">Connect one →</a></p>
               )}
             </div>
 
