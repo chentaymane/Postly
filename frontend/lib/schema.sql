@@ -435,3 +435,41 @@ UPDATE queued_posts qp
    AND sc.platform = qp.platform
    AND qp.delivery IS NULL
    AND qp.status IN ('scheduled','published');
+
+-- ---------------------------------------------------------------------------
+-- Bring your own niche.
+--
+-- Postly's prompts were written around one store — the examples named colouring
+-- books and a five-year-old with curly hair, and every user's posts inherited
+-- that. A tool that writes for anybody needs the specifics to come from the
+-- user, not from the source code.
+--
+-- Two levels, because both are real needs: a brand-wide instruction that every
+-- post should respect ("never mention discounts", "always British English"),
+-- and a per-automation one that shapes just that stream ("only behind-the-
+-- scenes posts"). The automation's is an addition to the brand's, not a
+-- replacement — overriding silently would make the brand rule look ignored.
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE brand_profiles
+    ADD COLUMN IF NOT EXISTS custom_prompt TEXT;      -- applies to every post
+ALTER TABLE brand_profiles
+    ADD COLUMN IF NOT EXISTS niche TEXT;              -- preset id, or NULL
+ALTER TABLE brand_profiles
+    ADD COLUMN IF NOT EXISTS banned_words TEXT;       -- comma separated
+ALTER TABLE brand_profiles
+    ADD COLUMN IF NOT EXISTS language TEXT NOT NULL DEFAULT 'English';
+
+ALTER TABLE automations
+    ADD COLUMN IF NOT EXISTS custom_prompt TEXT;      -- extra rules for this one
+
+-- A connection the connector no longer recognises is not "connected". Marking
+-- it lets the UI say so instead of failing every post with "Account not found".
+ALTER TABLE social_connections
+    ADD COLUMN IF NOT EXISTS last_error TEXT;
+ALTER TABLE social_connections
+    ADD COLUMN IF NOT EXISTS checked_at TIMESTAMPTZ;
+
+-- A key that will not decrypt is neither valid nor invalid — it is unreadable,
+-- and the user must re-enter it. Without its own state it was silently skipped.
+COMMENT ON COLUMN user_credentials.status IS 'unverified | ok | invalid | unreadable';

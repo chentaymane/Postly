@@ -21,6 +21,7 @@ function clean(b) {
     // automation in that tick down with it, so it is rejected at the door.
     timezone: isValidTimezone(b.timezone) ? b.timezone : 'UTC',
     theme: String(b.theme || '').trim().slice(0, 500) || null,
+    custom_prompt: String(b.custom_prompt || '').trim().slice(0, 4000) || null,
     tone: String(b.tone || '').trim().slice(0, 100) || null,
     approval: APPROVALS.includes(b.approval) ? b.approval : 'review',
     catch_up_hours: Math.max(0, Math.min(48, Number(b.catch_up_hours) || 6)),
@@ -101,13 +102,13 @@ export async function POST(request) {
   const { rows } = await query(
     `INSERT INTO automations
        (user_id, name, enabled, post_type, format, platforms, times, timezone,
-        theme, tone, approval, catch_up_hours)
-     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9,$10,$11,$12)
+        theme, tone, approval, catch_up_hours, custom_prompt)
+     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9,$10,$11,$12,$13)
      RETURNING *`,
     [
       userId, a.name, a.enabled, a.post_type, a.format,
       JSON.stringify(a.platforms), JSON.stringify(a.times), a.timezone,
-      a.theme, a.tone, a.approval, a.catch_up_hours,
+      a.theme, a.tone, a.approval, a.catch_up_hours, a.custom_prompt,
     ]
   );
   return NextResponse.json({

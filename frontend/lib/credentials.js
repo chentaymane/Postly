@@ -83,6 +83,13 @@ function envKey(kind) {
 }
 
 // Every stored credential of one kind, newest last, decrypted.
+//
+// A secret that will not decrypt used to be dropped here without a word, which
+// made a key the user could see listed as "ok" behave as though it were not
+// there at all. That is how a working Gemini key sat unused while every post
+// failed on Groq: the fallback chain skips a provider it believes has no key.
+// Now the row is marked so the UI can say "re-enter this key", and the caller
+// is told the difference between "no key" and "unreadable key".
 export async function listSecrets(userId, kind) {
   const { rows } = await query(
     `SELECT id, secret, status FROM user_credentials
@@ -90,9 +97,40 @@ export async function listSecrets(userId, kind) {
       ORDER BY id`,
     [userId, kind]
   );
-  return rows
-    .map((r) => ({ id: r.id, secret: open(r.secret), status: r.status }))
-    .filter((r) => r.secret);
+
+  const usable = [];
+  const unreadable = [];
+  for (const r of rows) {
+    const secret = open(r.secret);
+    if (secret) usable.push({ id: r.id, secret, status: r.status });
+    else unreadable.push(r.id);
+  }
+
+  if (unreadable.length) {
+    // Rotating CREDENTIALS_KEY/AUTH_SECRET makes every stored secret
+    // undecryptable. Recording it turns a silent skip into a visible prompt.
+    await query(
+      `UPDATE user_credentials
+          SET status = 'unreadable',
+              last_error = 'could not be decrypted — the app''s encryption key changed, please re-enter this key',
+              updated_at = now()
+        WHERE id = ANY($1::bigint[]) AND status <> 'unreadable'`,
+      [unreadable]
+    ).catch(() => {});
+  }
+
+  return usable;
+}
+
+// Keys of this kind that exist but cannot be read. Used to explain a failure
+// rather than let the provider look absent.
+export async function unreadableSecrets(userId, kind) {
+  const { rows } = await query(
+    `SELECT id FROM user_credentials
+      WHERE user_id = $1 AND kind = $2 AND status = 'unreadable'`,
+    [userId, kind]
+  );
+  return rows.map((r) => r.id);
 }
 
 // The key to use for a given kind: the user's own first, then the env
@@ -130,7 +168,7 @@ export async function credentialForNewConnection(userId, kind) {
             (SELECT count(*) FROM social_connections s
               WHERE s.credential_id = c.id AND s.status = 'connected') AS used
        FROM user_credentials c
-      WHERE c.user_id = $1 AND c.kind = $2 AND c.status <> 'invalid'
+      WHERE c.user_id = $1 AND c.kind = $2 AND c.status NOT IN ('invalid', 'unreadable')
       ORDER BY used ASC, c.id ASC`,
     [userId, kind]
   );

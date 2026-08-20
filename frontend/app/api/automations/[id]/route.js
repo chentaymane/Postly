@@ -40,6 +40,7 @@ export async function PATCH(request, { params }) {
        tone        = CASE WHEN $12::boolean THEN $13 ELSE tone END,
        approval    = COALESCE($14, approval),
        catch_up_hours   = COALESCE($15, catch_up_hours),
+       custom_prompt    = CASE WHEN $17::boolean THEN $18 ELSE custom_prompt END,
        scheduled_through = CASE WHEN $16::boolean THEN now() ELSE scheduled_through END,
        updated_at  = now()
      WHERE id = $1 AND user_id = $2
@@ -58,6 +59,10 @@ export async function PATCH(request, { params }) {
       APPROVALS.includes(b.approval) ? b.approval : null,
       b.catch_up_hours !== undefined ? Math.max(0, Math.min(48, Number(b.catch_up_hours) || 6)) : null,
       scheduleChanged,
+      b.custom_prompt !== undefined,
+      b.custom_prompt !== undefined
+        ? String(b.custom_prompt).trim().slice(0, 4000) || null
+        : null,
     ]
   );
   if (rows.length === 0) return NextResponse.json({ error: 'automation not found' }, { status: 404 });

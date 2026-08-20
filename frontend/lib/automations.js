@@ -70,6 +70,15 @@ function inputFor(automation, brand, { index, rotation }) {
     automation.theme?.trim() ||
     `${brand?.products || brand?.store_name || 'our products'} — ${ANGLES[(index + rotation) % ANGLES.length]}`;
 
+  // Brand rules apply to every post; the automation's are added on top rather
+  // than replacing them. Overriding silently would make a brand-wide rule
+  // ("never mention discounts") look ignored on one stream and honoured on
+  // another, with nothing in the UI to explain the difference.
+  const customPrompt = [brand?.custom_prompt, automation.custom_prompt]
+    .map((t) => String(t || '').trim())
+    .filter(Boolean)
+    .join('\n\n');
+
   return {
     theme,
     postType,
@@ -78,6 +87,7 @@ function inputFor(automation, brand, { index, rotation }) {
     description: brand?.benefits || '',
     tone: automation.tone || brand?.default_tone || 'friendly and engaging',
     destinationUrl: brand?.store_url || '',
+    customPrompt,
   };
 }
 

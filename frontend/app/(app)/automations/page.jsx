@@ -208,6 +208,7 @@ function AutomationCard({ a, platforms, browserZone, onChanged }) {
       name: draft.name, post_type: draft.post_type, format: draft.format,
       platforms: draft.platforms, times: draft.times, timezone: draft.timezone,
       theme: draft.theme ?? '', tone: draft.tone ?? '', approval: draft.approval,
+      custom_prompt: draft.custom_prompt ?? '',
       catch_up_hours: draft.catch_up_hours,
     });
     setBusy(null);
@@ -545,7 +546,19 @@ function AutomationCard({ a, platforms, browserZone, onChanged }) {
             <label htmlFor={`th-${a.id}`}>Topic (optional)</label>
             <textarea id={`th-${a.id}`} rows={2} value={draft.theme || ''}
                       onChange={(e) => setDraft({ ...draft, theme: e.target.value })}
-                      placeholder="Leave empty to rotate topics from your store profile" />
+                      placeholder="Leave empty to rotate topics from your brand profile" />
+          </div>
+
+          <div className="field">
+            <label htmlFor={`cp-${a.id}`}>Extra rules for this automation</label>
+            <textarea id={`cp-${a.id}`} rows={4} value={draft.custom_prompt || ''}
+                      onChange={(e) => setDraft({ ...draft, custom_prompt: e.target.value })}
+                      placeholder="Only behind-the-scenes posts. Never mention price." />
+            <p className="hint">
+              Added on top of your{' '}
+              <a href="/settings">brand rules</a>, not instead of them — so a brand-wide rule
+              still applies here.
+            </p>
           </div>
 
           <div className="field">

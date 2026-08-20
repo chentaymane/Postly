@@ -7,12 +7,13 @@
 
 // Extension is explicit so plain `node` scripts can import this module too.
 import { query } from './db.js';
-import { keyFor } from './keycontext.js';
+import { keyFor, currentUserIdFromContext } from './keycontext.js';
 import {
   uploadMediaFromUrl, createPost, toSocialApiPlatform,
   listRecentPosts as listRecentSocialApiPosts,
 } from './socialapi.js';
 import { createZernioPost, listRecentPosts as listRecentZernioPosts } from './zernio.js';
+import { modelFor, forgetModel, isModelError } from './models.js';
 
 // ---------------------------------------------------------------------------
 // Prompts
@@ -23,7 +24,10 @@ import { createZernioPost, listRecentPosts as listRecentZernioPosts } from './ze
 // sells THEIR product to THEIR audience.
 // postType: 'promo' (sell the product) | 'tips' (advice/value post that builds
 // trust) | 'engage' (fun, relatable, conversation-starting).
-export function buildPrompts({ theme, productName, description, tone, forPinterest, platform, brand, postType = 'promo', format = 'single' }) {
+export function buildPrompts({
+  theme, productName, description, tone, forPinterest, platform, brand,
+  postType = 'promo', format = 'single', customPrompt = '',
+}) {
   const subject = productName ? `${productName} — ${theme}` : theme;
 
   const pinterestKeys = forPinterest
@@ -77,7 +81,7 @@ export function buildPrompts({ theme, productName, description, tone, forPintere
         '"narration" is the spoken voiceover for that scene: ONE sentence of 12-20 words, plain spoken English, no emojis, no hashtags, no stage directions, no "scene 1" labels — it is read aloud word for word. ' +
         'The first narration is the hook (a question or a surprising fact), the middle ones build the story or give the tips, the last one is the spoken call to action. ' +
         '"image_prompt" is a one-sentence photo scene illustrating what is being said, framed VERTICALLY (portrait). ' +
-        'CRITICAL FOR CONSISTENCY: invent ONE main character and repeat the exact same physical description word-for-word in every image_prompt (e.g. "a 5-year-old girl with curly brown hair in a yellow sweater"), and keep the same setting. Never mention brands, logos, or any text appearing in the images.\n' +
+        'CRITICAL FOR CONSISTENCY: invent ONE main character and repeat the exact same physical description word-for-word in every image_prompt (for example a full physical description such as age, hair, clothing — invented to suit THIS brand\'s audience, not a default), and keep the same setting. Never mention brands, logos, or any text appearing in the images.\n' +
         'Respond ONLY with a valid JSON object with exactly these keys: "caption" (string: hook line, blank line, then the body per the rules above), ' +
         '"hashtags" (array of 6-10 strings, no # symbol), "cta" (string, one short line), ' +
         '"title" (string, max 80 chars: a punchy title for the video), "scenes" (array of 5-6 objects).'
@@ -90,14 +94,14 @@ export function buildPrompts({ theme, productName, description, tone, forPintere
           'the last is the payoff, the same person visibly happier, holding the result up.\n' +
           'For a tips post: one scene per tip, in the same order as the tips.\n' +
           'CRITICAL FOR CONSISTENCY: invent ONE main character and repeat their exact physical description word-for-word in every scene ' +
-          '(e.g. "a 5-year-old girl with curly brown hair in a yellow sweater"), and keep the same setting and time of day throughout. ' +
+          '(invent one that fits THIS brand\'s actual audience — describe age, hair and clothing in the same words every time), and keep the same setting and time of day throughout. ' +
           'Never mention brands, logos, or any text appearing in the images.\n' +
           'Respond ONLY with a valid JSON object with exactly these keys: "caption" (string: hook line, blank line, then the body per the rules above), ' +
           '"hashtags" (array of 6-10 strings, no # symbol), "cta" (string, one short line), "image_prompts" (array of 3-4 strings).'
         : '11. IMAGE: write "image_prompt" — one vivid sentence describing the photograph that would stop the scroll for THIS post. ' +
           'It must show ONE person, close enough to read their face, mid-action and mid-emotion — not a styled flat-lay and not an empty room. ' +
           'Name the subject, what they are doing, where, and the light ' +
-          '(e.g. "a 5-year-old girl grinning as she colours a lion with crayons at a sunny kitchen table, morning light across the paper"). ' +
+          '(the subject must be someone from THIS brand\'s audience doing something this brand\'s product is actually for). ' +
           'Never mention brands, logos, text, or words appearing in the image.\n' +
           'Respond ONLY with a valid JSON object with exactly these keys: "caption" (string: hook line, blank line, then the body per the rules above), ' +
           '"hashtags" (array of 6-10 strings, no # symbol), "cta" (string, one short line), "image_prompt" (string, one sentence).';
@@ -133,6 +137,23 @@ export function buildPrompts({ theme, productName, description, tone, forPintere
           engage: 'Write a relatable engagement post this audience will comment on',
         }[postType] || 'Write a post for this audience';
 
+  // The user's own instructions, last and clearly labelled so they outrank the
+  // generic craft rules above. They are the whole point of a tool that is not
+  // written for one shop: nothing else in this prompt knows that this brand
+  // never discounts, writes in French, or only ever shows the workshop.
+  const ownRules = String(customPrompt || '').trim();
+  const banned = String(brand?.banned_words || '').trim();
+  const language = String(brand?.language || '').trim();
+
+  const instructionBlock = [
+    language && language.toLowerCase() !== 'english'
+      ? `WRITE EVERYTHING IN ${language.toUpperCase()} — caption, hashtags, CTA and titles.`
+      : '',
+    banned ? `NEVER use these words or phrases: ${banned}.` : '',
+    ownRules ? `THE BRAND'S OWN RULES (these outrank the general guidance above):
+${ownRules}` : '',
+  ].filter(Boolean).join('\n');
+
   const userPrompt =
     (brandLines ? brandLines + '\n' : '') +
     `Post subject: ${subject}.` +
@@ -140,12 +161,13 @@ export function buildPrompts({ theme, productName, description, tone, forPintere
     ` Tone: ${tone}.` +
     ` Platform: ${platform || 'social media'}.` +
     ` ${goal}` +
-    (forPinterest ? ', plus the Pinterest search-optimised title and description.' : '.');
+    (forPinterest ? ', plus the Pinterest search-optimised title and description.' : '.') +
+    (instructionBlock ? '\n\n' + instructionBlock : '');
 
   // Fallback scene if the model omits image_prompt — the real scene normally
   // comes from the model itself (see finishImagePrompt).
   const productForImage = brand?.products || subject;
-  const imagePrompt = `happy person enjoying ${productForImage} in a cosy real-life moment, ${subject}`;
+  const imagePrompt = `a person using ${productForImage}, real unposed moment, ${subject}`;
 
   return { subject, systemPrompt, userPrompt, imagePrompt };
 }
@@ -187,40 +209,55 @@ export function finishImagePrompt(scene, tone = 'warm', { hero = false } = {}) {
 // Gemini and Anthropic have their own shapes and get small adapters.
 // ---------------------------------------------------------------------------
 
-// model env overrides let a deployment pin a model without code changes.
+// The model is resolved at call time by lib/models.js rather than pinned here.
+// A hardcoded id is a scheduled outage: when Groq retired the one this file
+// used to name, every generation failed with "the model does not exist" until
+// somebody read a log.
 const WRITERS = {
   groq: {
     url: 'https://api.groq.com/openai/v1/chat/completions',
-    model: () => process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
     dialect: 'openai',
     jsonMode: true,
   },
   openai: {
     url: 'https://api.openai.com/v1/chat/completions',
-    model: () => process.env.OPENAI_MODEL || 'gpt-4o-mini',
     dialect: 'openai',
     jsonMode: true,
   },
-  gemini: {
-    model: () => process.env.GEMINI_MODEL || 'gemini-2.0-flash',
-    dialect: 'gemini',
-  },
-  anthropic: {
-    model: () => process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5',
-    dialect: 'anthropic',
-  },
+  gemini: { dialect: 'gemini' },
+  anthropic: { dialect: 'anthropic' },
 };
 
 // The order providers are tried in. The first one with a key wins; the rest
 // are fallbacks, so a rate-limited provider does not stop a post going out.
 export const WRITER_ORDER = ['groq', 'openai', 'gemini', 'anthropic'];
 
-async function callWriter(kind, { systemPrompt, userPrompt }) {
+async function callWriter(kind, prompts) {
+  try {
+    return await callWriterWithModel(kind, prompts, await modelFor(kind));
+  } catch (e) {
+    // The provider retired the model. Rediscover what it serves now and try
+    // once more, so a retirement costs one post's latency rather than every
+    // post until someone notices.
+    if (!isModelError(e.message)) throw e;
+    const available = await forgetModel(kind);
+    const retryModel = await modelFor(kind);
+    try {
+      return await callWriterWithModel(kind, prompts, retryModel);
+    } catch (retryError) {
+      throw new Error(
+        `${retryError.message}` +
+        (available.length ? ` (models this key can use: ${available.slice(0, 6).join(', ')})` : '')
+      );
+    }
+  }
+}
+
+async function callWriterWithModel(kind, { systemPrompt, userPrompt }, model) {
   const spec = WRITERS[kind];
   if (!spec) throw new Error(`unknown writer: ${kind}`);
   const key = await keyFor(kind);
   if (!key) throw new Error(`no ${kind} key`);
-  const model = spec.model();
 
   if (spec.dialect === 'openai') {
     const res = await fetch(spec.url, {
@@ -352,12 +389,23 @@ function speakable(text) {
 
 export async function generateCopy(prompts, subject) {
   const errors = [];
-  const skipped = [];
+  const unreadable = [];
+  const userId = currentUserIdFromContext();
 
   for (const kind of WRITER_ORDER) {
     // Skip providers this user has no key for, rather than counting them as
     // failures — otherwise the error message is mostly noise.
-    if (!(await keyFor(kind))) { skipped.push(kind); continue; }
+    if (!(await keyFor(kind))) {
+      // ...but "no key" and "a key that will not decrypt" are different
+      // problems, and only one of them is the user's to fix. Conflating them
+      // is what hid a working Gemini key behind a dead Groq model.
+      if (userId) {
+        const { unreadableSecrets } = await import('./credentials.js');
+        const bad = await unreadableSecrets(userId, kind).catch(() => []);
+        if (bad.length) unreadable.push(kind);
+      }
+      continue;
+    }
     try {
       const raw = await callWriter(kind, prompts);
       const copy = parseCopy(raw, subject);
@@ -368,12 +416,16 @@ export async function generateCopy(prompts, subject) {
     }
   }
 
+  const keyNote = unreadable.length
+    ? ` — your ${unreadable.join(' and ')} key could not be decrypted, re-enter it in Settings → API keys`
+    : '';
+
   if (errors.length === 0) {
     throw new Error(
-      'no AI writer configured — add a Groq, OpenAI, Gemini or Anthropic key in Settings → API keys'
+      'no AI writer configured — add a Groq, OpenAI, Gemini or Anthropic key in Settings → API keys' + keyNote
     );
   }
-  throw new Error(`copy generation failed (${errors.join(' | ')})`);
+  throw new Error(`copy generation failed (${errors.join(' | ')})${keyNote}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -847,6 +899,59 @@ async function publishViaAggregator(conn, content, platform, scheduledAt) {
 }
 
 // Publishes through Zernio (Pinterest). Media is attached by URL directly.
+// The board a pin must go to.
+//
+// Board ids are captured when the account is connected, and that is the only
+// time they were ever looked up. An account with no boards yet — or one whose
+// boards were created afterwards — kept a null board id forever, and every pin
+// failed without ever naming the reason. Resolving it lazily at publish time
+// makes the connection repair itself the moment a board exists.
+export async function resolvePinterestBoard(conn) {
+  const existing = conn.extra?.board_id;
+  if (existing) return existing;
+
+  const accountId = conn.extra?.zernio_account_id || conn.account_id;
+  const provider = conn.provider || 'direct';
+
+  let boards = [];
+  try {
+    if (provider === 'zernio') {
+      const { listPinterestBoards } = await import('./zernio.js');
+      boards = await listPinterestBoards(accountId);
+    } else if (provider === 'socialapi') {
+      const { listPinterestBoards } = await import('./socialapi.js');
+      boards = await listPinterestBoards(accountId);
+    }
+  } catch (e) {
+    if (/not found/i.test(e.message)) {
+      throw new Error(
+        'this Pinterest account no longer exists at the connector — reconnect it on the Connections page'
+      );
+    }
+    throw new Error(`could not read your Pinterest boards (${e.message})`);
+  }
+
+  if (!boards || boards.length === 0) {
+    throw new Error(
+      'your Pinterest account has no boards — create one at pinterest.com, then press "Refresh boards" ' +
+      'on the Connections page. Pinterest cannot accept a pin without a board.'
+    );
+  }
+
+  // Remember it, so the next post does not pay for this lookup again.
+  await query(
+    `UPDATE social_connections
+        SET extra = jsonb_set(
+              jsonb_set(COALESCE(extra,'{}'::jsonb), '{board_id}', to_jsonb($2::text), true),
+              '{board_name}', to_jsonb($3::text), true),
+            updated_at = now()
+      WHERE id = $1`,
+    [conn.id, String(boards[0].id), boards[0].name || '']
+  ).catch(() => {});
+
+  return String(boards[0].id);
+}
+
 async function publishViaZernio(conn, content, platform, scheduledAt) {
   const accountId = conn.extra?.zernio_account_id || conn.account_id;
   if (!accountId) throw new Error('Zernio connection is missing its account id');
@@ -876,10 +981,12 @@ async function publishViaZernio(conn, content, platform, scheduledAt) {
     .trim()
     .slice(0, 90);
 
+  const boardId = isPinterest ? await resolvePinterestBoard(conn) : undefined;
+
   return createZernioPost({
     platform,
     accountId,
-    boardId: isPinterest ? conn.extra?.board_id || undefined : undefined,
+    boardId,
     title: isPinterest ? content.pinTitle : content.videoTitle || content.pinTitle || undefined,
     description: isPinterest
       ? content.pinDescription
