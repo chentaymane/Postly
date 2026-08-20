@@ -1,26 +1,29 @@
 /* ==========================================================================
    Marketing site — the public face at "/"
    ==========================================================================
-   Deliberately louder than the app: bigger type, more air, one citron moment
-   per screen. The app is a tool people return to daily and should recede; this
-   page has one job and about six seconds to do it.
+   Louder than the app on purpose. The app is a tool people return to daily and
+   should recede; this page has one job and about six seconds to do it.
 
    It reuses the same semantic tokens as globals.css, so it themes light/dark
-   with everything else and cannot drift from the product it is advertising.
+   with everything else and cannot drift from the product it advertises. Depth
+   comes from layout, scale and hairlines — not gradients, which the design
+   system does not use anywhere else.
    ========================================================================== */
 
 .marketing { display: flex; flex-direction: column; min-height: 100vh; }
+
+/* ------------------------------------------------------------------- nav -- */
 
 .mk-nav {
   position: sticky; top: 0; z-index: 60;
   display: flex; align-items: center; justify-content: space-between;
   gap: var(--s4);
   padding: var(--s3) clamp(var(--s4), 5vw, 56px);
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
-  backdrop-filter: saturate(160%) blur(12px);
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  backdrop-filter: saturate(180%) blur(14px);
   border-bottom: 1px solid var(--border);
 }
-.mk-nav-links { display: flex; align-items: center; gap: var(--s2); }
+.mk-nav-links { display: flex; align-items: center; gap: var(--s1); }
 .mk-nav-link {
   padding: 8px var(--s3); border-radius: var(--radius-sm);
   font-size: 14px; font-weight: 550; color: var(--text-soft);
@@ -28,133 +31,205 @@
 }
 .mk-nav-link:hover { background: var(--surface-2); color: var(--text); }
 
-.mk-section { padding: clamp(56px, 8vw, 104px) clamp(var(--s4), 5vw, 56px); }
-.mk-inner { max-width: 1080px; margin: 0 auto; }
+/* --------------------------------------------------------------- layout -- */
+
+.mk-section { padding: clamp(64px, 9vw, 120px) clamp(var(--s4), 5vw, 56px); }
+.mk-section.tight { padding-block: clamp(40px, 5vw, 64px); }
+.mk-inner { max-width: 1100px; margin: 0 auto; }
 .mk-section.alt { background: var(--bg-alt); border-block: 1px solid var(--border); }
 
 .mk-eyebrow {
   display: inline-flex; align-items: center; gap: var(--s2);
+  font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--accent-deep); margin-bottom: var(--s4);
+}
+.mk-eyebrow::before {
+  content: ''; width: 22px; height: 2px; border-radius: 2px; background: var(--accent);
+}
+.mk-badge {
+  display: inline-flex; align-items: center; gap: var(--s2);
   font-size: 12.5px; font-weight: 650;
-  padding: 5px 12px; border-radius: 999px;
+  padding: 6px 13px; border-radius: 999px;
   background: var(--accent-soft); color: var(--accent-deep);
-  border: 1px solid color-mix(in srgb, var(--accent-deep) 22%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-deep) 24%, transparent);
   margin-bottom: var(--s5);
 }
 
 .mk-h1 {
-  font-size: clamp(36px, 6.2vw, 62px);
-  line-height: 1.04; letter-spacing: -0.035em;
+  font-size: clamp(38px, 6.6vw, 68px);
+  line-height: 1.02; letter-spacing: -0.04em; font-weight: 700;
   margin: 0 0 var(--s5); max-width: 17ch;
 }
-/* The one highlighted phrase per page. Clone the decoration so a wrapped
-   phrase keeps its box on both lines instead of stretching across the gap. */
 .mk-mark {
   font-style: normal; background: var(--accent); color: var(--on-accent);
-  padding: 0 0.14em; border-radius: 6px;
+  padding: 0 0.14em; border-radius: 7px;
   box-decoration-break: clone; -webkit-box-decoration-break: clone;
 }
 .mk-lede {
-  font-size: clamp(16px, 2vw, 19px); color: var(--text-soft);
-  max-width: 54ch; margin: 0 0 var(--s6); line-height: 1.6;
+  font-size: clamp(16px, 2vw, 19.5px); color: var(--text-soft);
+  max-width: 52ch; margin: 0 0 var(--s6); line-height: 1.62;
 }
-
 .mk-h2 {
-  font-size: clamp(26px, 3.6vw, 38px); line-height: 1.12;
-  letter-spacing: -0.028em; margin: 0 0 var(--s4); max-width: 20ch;
+  font-size: clamp(28px, 4vw, 42px); line-height: 1.1;
+  letter-spacing: -0.032em; font-weight: 700; margin: 0 0 var(--s4); max-width: 19ch;
 }
-.mk-sub { font-size: 16px; color: var(--text-dim); max-width: 58ch; margin: 0 0 var(--s7); }
+.mk-h2.wide { max-width: 26ch; }
+.mk-sub { font-size: 16.5px; color: var(--text-dim); max-width: 60ch; margin: 0 0 var(--s7); line-height: 1.6; }
 
 .mk-cta-row { display: flex; gap: var(--s3); flex-wrap: wrap; align-items: center; }
 .mk-note { font-size: 13px; color: var(--text-dim); }
 
+/* ------------------------------------------------------------------ hero -- */
+
+.mk-hero-wrap { position: relative; overflow: hidden; }
+/* A faint grid, so the hero has a floor without introducing a gradient. It
+   fades out before the copy so nothing competes with the headline. */
+.mk-hero-wrap::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background-image:
+    linear-gradient(to right, var(--border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse 80% 60% at 70% 20%, #000 0%, transparent 70%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 70% 20%, #000 0%, transparent 70%);
+  opacity: 0.6;
+}
 .mk-hero {
-  display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  position: relative;
+  display: grid; grid-template-columns: minmax(0, 1.02fr) minmax(0, 0.98fr);
   gap: clamp(var(--s6), 5vw, 64px); align-items: center;
 }
 
-/* A believable slice of the product, drawn in CSS. A real screenshot goes
-   stale at the next redesign and a stock illustration proves nothing. */
+/* Trust line under the CTAs — facts, not logos we have not earned. */
+.mk-trust {
+  display: flex; flex-wrap: wrap; gap: var(--s3) var(--s5);
+  margin-top: var(--s5); font-size: 13px; color: var(--text-dim);
+}
+.mk-trust span { display: inline-flex; align-items: center; gap: 7px; }
+.mk-tick { color: var(--success); flex-shrink: 0; }
+
+/* -------------------------------------------------------- product mock --- */
+/* Drawn in CSS: a screenshot would go stale at the next redesign, and stock
+   illustration proves nothing about what the product does. */
+
 .mk-shot {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); overflow: hidden;
 }
 .mk-shot-bar {
   display: flex; align-items: center; gap: 6px;
-  padding: 10px var(--s4); border-bottom: 1px solid var(--border);
+  padding: 11px var(--s4); border-bottom: 1px solid var(--border);
   background: var(--surface-2);
 }
-.mk-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--border-strong); }
-.mk-shot-title {
-  margin-left: var(--s3); font-size: 12px; font-weight: 650; color: var(--text-dim);
-}
-.mk-shot-body { padding: var(--s4); display: flex; flex-direction: column; gap: var(--s3); }
+.mk-dot-win { width: 9px; height: 9px; border-radius: 50%; background: var(--border-strong); }
+.mk-shot-title { margin-left: var(--s3); font-size: 11.5px; font-weight: 650; color: var(--text-dim); }
+.mk-shot-body { padding: var(--s4); display: flex; flex-direction: column; gap: var(--s2); }
 .mk-row {
   display: flex; align-items: center; gap: var(--s3);
   padding: var(--s3); border: 1px solid var(--border);
   border-radius: var(--radius); background: var(--surface);
 }
-.mk-row-time {
-  font-variant-numeric: tabular-nums; font-weight: 700; font-size: 13px;
-  color: var(--text-dim); min-width: 44px;
+.mk-row-key {
+  font-variant-numeric: tabular-nums; font-weight: 700; font-size: 12.5px;
+  color: var(--text-dim); min-width: 46px;
 }
 .mk-bars { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
-.mk-bar { height: 7px; border-radius: 4px; background: var(--surface-3); }
-.mk-bar.short { width: 52%; }
-.mk-bar.mid { width: 76%; }
+.mk-bar { height: 6px; border-radius: 4px; background: var(--surface-3); }
+.mk-bar.short { width: 48%; }
+.mk-bar.mid { width: 74%; }
+
+/* ------------------------------------------------------------- logo band -- */
 
 .mk-logos {
-  display: flex; flex-wrap: wrap; gap: var(--s4) var(--s7);
+  display: flex; flex-wrap: wrap; gap: var(--s4) clamp(var(--s5), 4vw, 56px);
   align-items: center; justify-content: center; color: var(--text-dim);
 }
 .mk-logo { display: inline-flex; align-items: center; gap: var(--s2); font-size: 13.5px; font-weight: 550; }
 
-.mk-grid { display: grid; gap: var(--s4); grid-template-columns: repeat(auto-fit, minmax(258px, 1fr)); }
-.mk-card {
+/* ------------------------------------------------------------ bento grid -- */
+/* Uneven cells give the section a rhythm a uniform 3-across grid cannot, and
+   they let the two ideas that matter most take the space they deserve. */
+
+.mk-bento { display: grid; gap: var(--s4); grid-template-columns: repeat(6, 1fr); }
+.mk-cell {
+  grid-column: span 2;
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius-lg); padding: var(--s5);
-  transition: border-color var(--base) var(--ease), transform var(--base) var(--ease);
+  display: flex; flex-direction: column; gap: var(--s3);
+  transition: border-color var(--base) var(--ease), transform var(--base) var(--ease),
+              box-shadow var(--base) var(--ease);
 }
-.mk-card:hover { border-color: var(--border-strong); transform: translateY(-2px); }
-.mk-card-icon {
-  width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center;
-  background: var(--accent-soft); color: var(--accent-deep); margin-bottom: var(--s4);
+.mk-cell:hover {
+  border-color: var(--border-strong); transform: translateY(-3px); box-shadow: var(--shadow);
 }
-.mk-card h3 { font-size: 16px; margin: 0 0 var(--s2); }
-.mk-card p { font-size: 14px; color: var(--text-dim); margin: 0; line-height: 1.6; }
+.mk-cell.wide { grid-column: span 3; }
+.mk-cell.full { grid-column: span 6; }
+.mk-cell.feature {
+  grid-column: span 3;
+  background: var(--accent); color: var(--on-accent); border-color: var(--accent);
+}
+.mk-cell.feature .mk-cell-icon { background: rgba(23, 26, 9, 0.12); color: var(--on-accent); }
+.mk-cell.feature p { color: rgba(23, 26, 9, 0.78); }
+
+.mk-cell-icon {
+  width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent-deep); flex-shrink: 0;
+}
+.mk-cell h3 { font-size: 17px; margin: 0; letter-spacing: -0.012em; }
+.mk-cell p { font-size: 14.5px; color: var(--text-dim); margin: 0; line-height: 1.6; }
+.mk-cell-stat {
+  font-size: clamp(30px, 4vw, 40px); font-weight: 700; letter-spacing: -0.03em;
+  line-height: 1; font-variant-numeric: tabular-nums;
+}
+
+/* ----------------------------------------------------------------- steps -- */
 
 .mk-steps { display: grid; gap: var(--s5); grid-template-columns: repeat(3, 1fr); counter-reset: step; }
-.mk-step { position: relative; padding-top: 46px; }
+.mk-step { position: relative; padding-top: 52px; }
 .mk-step::before {
-  counter-increment: step; content: counter(step);
+  counter-increment: step; content: counter(step, decimal-leading-zero);
   position: absolute; top: 0; left: 0;
-  width: 34px; height: 34px; border-radius: 50%;
-  display: grid; place-items: center;
-  background: var(--accent); color: var(--on-accent);
-  font-weight: 800; font-size: 15px;
+  font-size: 30px; font-weight: 800; letter-spacing: -0.04em;
+  color: var(--accent-deep); opacity: 0.9;
 }
-.mk-step h3 { font-size: 17px; margin: 0 0 var(--s2); }
-.mk-step p { font-size: 14.5px; color: var(--text-dim); margin: 0; line-height: 1.6; }
+.mk-step::after {
+  content: ''; position: absolute; top: 38px; left: 0; width: 26px; height: 2px;
+  background: var(--accent); border-radius: 2px;
+}
+.mk-step h3 { font-size: 17.5px; margin: 0 0 var(--s2); letter-spacing: -0.012em; }
+.mk-step p { font-size: 14.5px; color: var(--text-dim); margin: 0; line-height: 1.62; }
+
+/* ------------------------------------------------------------------- faq -- */
 
 .mk-faq { display: flex; flex-direction: column; }
 .mk-faq details { border-top: 1px solid var(--border); padding: var(--s4) 0; }
 .mk-faq details:last-child { border-bottom: 1px solid var(--border); }
 .mk-faq summary {
-  cursor: pointer; font-size: 16px; font-weight: 600; list-style: none;
+  cursor: pointer; font-size: 16.5px; font-weight: 600; list-style: none;
   display: flex; align-items: center; justify-content: space-between; gap: var(--s4);
 }
 .mk-faq summary::-webkit-details-marker { display: none; }
-.mk-faq-plus { flex-shrink: 0; color: var(--text-dim); transition: transform var(--fast) var(--ease); }
-.mk-faq details[open] .mk-faq-plus { transform: rotate(45deg); }
-.mk-faq p { font-size: 14.5px; color: var(--text-dim); margin: var(--s3) 0 0; max-width: 68ch; line-height: 1.65; }
+.mk-faq-plus { flex-shrink: 0; color: var(--text-dim); transition: transform var(--base) var(--ease); }
+.mk-faq details[open] .mk-faq-plus { transform: rotate(45deg); color: var(--accent-deep); }
+.mk-faq p { font-size: 15px; color: var(--text-dim); margin: var(--s3) 0 0; max-width: 70ch; line-height: 1.65; }
+
+/* ----------------------------------------------------------------- close -- */
 
 .mk-final {
-  background: var(--accent); color: var(--on-accent);
-  border-radius: var(--radius-lg); padding: clamp(36px, 6vw, 68px); text-align: center;
+  background: var(--brand-ink); color: #fff;
+  border-radius: var(--radius-lg); padding: clamp(44px, 7vw, 84px); text-align: center;
+  position: relative; overflow: hidden;
 }
-.mk-final h2 { font-size: clamp(26px, 4vw, 40px); margin: 0 0 var(--s3); letter-spacing: -0.03em; }
-.mk-final p { font-size: 16px; margin: 0 0 var(--s6); color: rgba(23, 26, 9, 0.76); }
-.btn-dark { background: var(--brand-ink); color: var(--accent); }
-.btn-dark:hover:not(:disabled) { background: #000; box-shadow: none; }
+.mk-final h2 {
+  font-size: clamp(28px, 4.4vw, 46px); margin: 0 0 var(--s3);
+  letter-spacing: -0.035em; color: #fff; position: relative;
+}
+.mk-final p { font-size: 17px; margin: 0 0 var(--s6); color: rgba(255, 255, 255, 0.66); position: relative; }
+.mk-final .mk-note { color: rgba(255, 255, 255, 0.5); margin-top: var(--s4); }
+.btn-citron { background: var(--accent); color: var(--brand-ink); position: relative; }
+.btn-citron:hover:not(:disabled) { background: var(--accent-hover); box-shadow: 0 0 0 5px rgba(217, 224, 33, 0.2); }
+
+/* ---------------------------------------------------------------- footer -- */
 
 .mk-footer {
   margin-top: auto; border-top: 1px solid var(--border);
@@ -166,22 +241,23 @@
 .mk-footer a:hover { color: var(--accent-deep); }
 .mk-footer-links { display: flex; flex-wrap: wrap; gap: var(--s5); }
 
-/* Sign-in provider buttons, shared with /login. */
-.btn-google { background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); }
-.btn-google:hover:not(:disabled) { background: var(--surface-2); }
-.auth-divider {
-  display: flex; align-items: center; gap: var(--s3);
-  margin: var(--s5) 0; color: var(--text-dim); font-size: 12.5px;
-}
-.auth-divider::before, .auth-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+/* ------------------------------------------------------------ responsive -- */
 
-@media (max-width: 940px) { .mk-hero { grid-template-columns: 1fr; } }
+@media (max-width: 980px) {
+  .mk-hero { grid-template-columns: 1fr; }
+  .mk-bento { grid-template-columns: repeat(4, 1fr); }
+  .mk-cell, .mk-cell.wide, .mk-cell.feature { grid-column: span 2; }
+  .mk-cell.full { grid-column: span 4; }
+}
 @media (max-width: 820px) { .mk-steps { grid-template-columns: 1fr; } }
-@media (max-width: 700px) {
+@media (max-width: 640px) {
   .mk-nav-link.hide-sm { display: none; }
   .mk-cta-row .btn { flex: 1 1 auto; }
+  .mk-bento { grid-template-columns: 1fr; }
+  .mk-cell, .mk-cell.wide, .mk-cell.feature, .mk-cell.full { grid-column: span 1; }
+  .mk-hero-wrap::before { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mk-card:hover { transform: none; }
+  .mk-cell:hover { transform: none; }
 }
