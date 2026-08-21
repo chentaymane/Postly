@@ -299,6 +299,25 @@ brand-wide rule cannot be silently lost by an automation that sets its own.
 Add a preset by editing [`frontend/lib/niches.js`](frontend/lib/niches.js) —
 it is a plain object, and `custom_prompt` is where the craft of a trade lives.
 
+## Running it for other people
+
+`/admin` is the operator's view: who has signed up, whether they got as far as
+publishing anything, and which automations are failing right now for someone
+who thinks theirs is working.
+
+Set `ADMIN_EMAILS` to a comma-separated list of addresses. It **fails closed** —
+unset means nobody, not everybody — and it lives in the environment rather than
+a database column so granting it needs deployment access, the same bar as
+reading the database directly.
+
+The page and every one of its endpoints check independently; hiding the nav
+link is a convenience, not the permission. A non-admin gets a 404 rather than a
+403, because "you are not an admin" confirms the page is worth attacking.
+
+Deleting a user from there is irreversible and cascades to their connections,
+keys, automations, posts and click history. You cannot delete yourself, and you
+cannot delete another admin without removing them from `ADMIN_EMAILS` first.
+
 ## How the scheduling works
 
 The part most likely to surprise you, so it is worth stating plainly.

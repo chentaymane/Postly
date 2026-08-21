@@ -6,6 +6,7 @@ import { PostlyLogo } from '../../components/BrandIcons';
 import { SidebarNav, DrawerNav } from '../../components/NavLinks';
 import ThemeToggle from '../../components/ThemeToggle';
 import SchedulerPulse from '../../components/SchedulerPulse';
+import { isAdminUser } from '../../lib/admin';
 
 // Chrome for the signed-in application pages.
 export default async function AppLayout({ children }) {
@@ -39,6 +40,9 @@ export default async function AppLayout({ children }) {
     badges = { '/review': rows[0]?.n || 0 };
   }
 
+  // Decided on the server; the link is a convenience, not the gate.
+  const isAdmin = user?.id ? await isAdminUser(Number(user.id)) : false;
+
   const initial = (user?.name || user?.email || '?').trim().charAt(0).toUpperCase();
 
   async function doSignOut() {
@@ -70,7 +74,7 @@ export default async function AppLayout({ children }) {
         </div>
 
         <nav aria-label="Main">
-          <SidebarNav badges={badges} />
+          <SidebarNav badges={badges} isAdmin={isAdmin} />
         </nav>
 
         <div className="sidebar-foot">
@@ -95,7 +99,7 @@ export default async function AppLayout({ children }) {
             <form action={doSignOut}>
               <button className="btn btn-ghost btn-sm" type="submit">Sign out</button>
             </form>
-            <DrawerNav badges={badges} />
+            <DrawerNav badges={badges} isAdmin={isAdmin} />
           </div>
         </header>
 

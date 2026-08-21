@@ -27,6 +27,14 @@ const GROUPS = [
   },
 ];
 
+// Only rendered when the server says so. This is a convenience, not the
+// access control — the page and its API both check independently, because a
+// hidden link is not a permission.
+const ADMIN_GROUP = {
+  label: 'Operator',
+  links: [{ href: '/admin', label: 'Admin', icon: 'dashboard' }],
+};
+
 const ALL = GROUPS.flatMap((g) => g.links);
 
 function isActive(pathname, href) {
@@ -49,11 +57,12 @@ function Link({ link, pathname, badge }) {
 }
 
 // Desktop sidebar navigation.
-export function SidebarNav({ badges = {} }) {
+export function SidebarNav({ badges = {}, isAdmin = false }) {
   const pathname = usePathname();
+  const groups = isAdmin ? [...GROUPS, ADMIN_GROUP] : GROUPS;
   return (
     <>
-      {GROUPS.map((group) => (
+      {groups.map((group) => (
         <div className="nav-group" key={group.label}>
           <p className="nav-label">{group.label}</p>
           {group.links.map((l) => (
@@ -66,8 +75,9 @@ export function SidebarNav({ badges = {} }) {
 }
 
 // Mobile drawer, opened from the top bar.
-export function DrawerNav({ badges = {} }) {
+export function DrawerNav({ badges = {}, isAdmin = false }) {
   const pathname = usePathname();
+  const groups = isAdmin ? [...GROUPS, ADMIN_GROUP] : GROUPS;
   const [open, setOpen] = useState(false);
   const closeRef = useRef(null);
 
@@ -102,7 +112,7 @@ export function DrawerNav({ badges = {} }) {
               <button className="drawer-close" ref={closeRef} onClick={() => setOpen(false)}
                       aria-label="Close menu">×</button>
             </div>
-            {GROUPS.map((group) => (
+            {groups.map((group) => (
               <div className="nav-group" key={group.label}>
                 <p className="nav-label">{group.label}</p>
                 {group.links.map((l) => (
