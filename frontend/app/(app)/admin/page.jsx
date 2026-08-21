@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, Fragment } from 'react';
 import { useRouter } from 'next/navigation';
+import AdminUserDetail from '../../../components/AdminUserDetail';
 import '../../admin.css';
 
 function ago(at) {
@@ -57,6 +58,7 @@ export default function AdminPage() {
   const [d, setD] = useState(null);
   const [denied, setDenied] = useState(false);
   const [busy, setBusy] = useState(null);
+  const [openUser, setOpenUser] = useState(null);
   const [toast, setToast] = useState(null);
   const router = useRouter();
 
@@ -193,6 +195,39 @@ export default function AdminPage() {
         </section>
       )}
 
+      {/* Everything that happened lately, across all accounts. The tables
+          say how much; this says what, while it is still fixable. */}
+      <section className="panel">
+        <p className="panel-title">Live activity</p>
+        {(!d.activity || d.activity.length === 0) ? (
+          <p className="empty">Nothing has happened yet.</p>
+        ) : (
+          <div className="admin-list">
+            {d.activity.map((a) => (
+              <div className="admin-post" key={a.id}>
+                <span className={`pill ${
+                  a.status === 'published' ? 'ok'
+                    : a.status === 'failed' ? 'danger'
+                      : a.status === 'scheduled' ? 'info' : 'neutral'
+                }`}>{a.status}</span>
+                <span className="admin-post-body">
+                  <strong>{a.email}</strong> · {a.platform} · {a.format}
+                  {' · '}{(a.pin_title || a.theme || 'untitled').slice(0, 60)}
+                  {a.error_message && (
+                    <><br /><span className="err-text">{a.error_message.slice(0, 150)}</span></>
+                  )}
+                </span>
+                {a.platform_post_url && (
+                  <a className="mini-link" href={a.platform_post_url}
+                     target="_blank" rel="noreferrer">view</a>
+                )}
+                <span className="mini-time">{ago(a.updated_at)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
       <section className="panel">
         <p className="panel-title">Signups · last 30 days</p>
         <SignupChart days={d.signups} />
@@ -219,7 +254,8 @@ export default function AdminPage() {
               {d.users.map((u) => {
                 const a = activity(u);
                 return (
-                  <tr key={u.id}>
+                  <Fragment key={u.id}>
+                  <tr>
                     <td>
                       <span className="admin-email">{u.email}</span>
                       <span className="admin-meta">
@@ -236,13 +272,24 @@ export default function AdminPage() {
                     <td className="num">{u.published}</td>
                     <td className={`num${u.failed > 0 ? ' err-text' : ''}`}>{u.failed}</td>
                     <td className="admin-meta">{ago(u.last_post_at)}</td>
-                    <td>
+                    <td className="admin-actions">
+                      <button className="link-btn"
+                              onClick={() => setOpenUser(openUser === u.id ? null : u.id)}
+                              aria-expanded={openUser === u.id}>
+                        {openUser === u.id ? 'Hide' : 'Activity'}
+                      </button>
                       <button className="link-btn danger" disabled={busy === u.id}
                               onClick={() => removeUser(u)}>
                         {busy === u.id ? '…' : 'Delete'}
                       </button>
                     </td>
                   </tr>
+                  {openUser === u.id && (
+                    <tr className="admin-detail-row">
+                      <td colSpan={9}><AdminUserDetail userId={u.id} /></td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
             </tbody>

@@ -24,7 +24,7 @@ export async function GET() {
     return NextResponse.json({ error: 'not found' }, { status: 404 });
   }
 
-  const [users, signups, totals, failing, beat, renderBeat] = await Promise.all([
+  const [users, signups, totals, failing, beat, renderBeat, activity] = await Promise.all([
     query(
       `SELECT u.id, u.email, u.name, u.created_at, u.last_login_at, u.onboarded_at,
               (SELECT count(*)::int FROM social_connections s
@@ -80,6 +80,18 @@ export async function GET() {
     ),
     readHeartbeat().catch(() => null),
     readWorkerHeartbeat().catch(() => null),
+    // What has actually happened lately, across everyone. The per-user counts
+    // answer "how much"; this answers "what, and is it going wrong right now".
+    query(
+      `SELECT q.id, q.user_id, u.email, q.platform, q.status, q.format,
+              q.pin_title, q.theme, q.error_message, q.platform_post_url,
+              q.created_at, q.updated_at
+         FROM queued_posts q
+         JOIN users u ON u.id = q.user_id
+        WHERE q.status <> 'generating'
+        ORDER BY q.updated_at DESC
+        LIMIT 40`
+    ),
   ]);
 
   const age = (at) => (at ? Date.now() - new Date(at).getTime() : null);
@@ -90,6 +102,7 @@ export async function GET() {
     users: users.rows,
     signups: signups.rows,
     failing: failing.rows,
+    activity: activity.rows,
     scheduler: beat
       ? { ...beat, ageMs: age(beat.at), healthy: age(beat.at) < 25 * 60000 }
       : null,
