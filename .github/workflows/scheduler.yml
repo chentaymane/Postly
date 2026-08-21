@@ -26,7 +26,7 @@
 # Setup, once:
 #   Settings -> Secrets and variables -> Actions
 #     secret   CRON_SECRET   the same value as the Vercel env var
-#     variable POSTLY_URL    https://postly48.vercel.app   (optional)
+#     variable POSTLY_URL    https://your-app.vercel.app   (REQUIRED)
 
 name: scheduler
 
@@ -48,8 +48,17 @@ jobs:
       - name: Ping the scheduler
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          POSTLY_URL: ${{ vars.POSTLY_URL || 'https://postly48.vercel.app' }}
+          POSTLY_URL: ${{ vars.POSTLY_URL }}
         run: |
+          # No default URL on purpose. A hardcoded fallback pointed at a
+          # domain that had since been released, so every tick 404'd for a
+          # day — and worse, a released *.vercel.app can be claimed by
+          # anyone, which would have handed them the secret in a header.
+          if [ -z "$POSTLY_URL" ]; then
+            echo "::error::POSTLY_URL is not set — add it under Settings > Secrets and variables > Actions > Variables"
+            exit 1
+          fi
+
           if [ -z "$CRON_SECRET" ]; then
             echo "::error::CRON_SECRET is not set — add it under Settings > Secrets and variables > Actions"
             exit 1

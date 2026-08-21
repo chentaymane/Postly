@@ -20,7 +20,7 @@
 #   Settings -> Secrets and variables -> Actions
 #     secret   RENDER_WORKER_TOKEN     same value as the app's env var
 #     secret   BLOB_READ_WRITE_TOKEN   Vercel -> Storage -> Blob (PUBLIC store)
-#     variable POSTLY_URL              https://postly48.vercel.app  (optional)
+#     variable POSTLY_URL              https://your-app.vercel.app  (REQUIRED)
 #
 #   On the app (Vercel env vars), for on-demand triggering:
 #     GITHUB_DISPATCH_TOKEN   a fine-grained PAT with Actions: read+write
@@ -48,7 +48,7 @@ jobs:
     timeout-minutes: 20
 
     env:
-      POSTLY_APP_URL: ${{ vars.POSTLY_URL || 'https://postly48.vercel.app' }}
+      POSTLY_APP_URL: ${{ vars.POSTLY_URL }}
       RENDER_WORKER_TOKEN: ${{ secrets.RENDER_WORKER_TOKEN }}
       PIPER_VOICE: ${{ github.workspace }}/worker/voices/en_US-ryan-medium.onnx
       # The runner has plenty of CPU, so spend it on a better-looking video
@@ -62,6 +62,7 @@ jobs:
       - name: Check the secrets are present
         run: |
           missing=
+          [ -z "$POSTLY_APP_URL" ] && missing="$missing POSTLY_URL(variable)"
           [ -z "$RENDER_WORKER_TOKEN" ] && missing="$missing RENDER_WORKER_TOKEN"
           [ -z "$BLOB_READ_WRITE_TOKEN" ] && missing="$missing BLOB_READ_WRITE_TOKEN"
           if [ -n "$missing" ]; then
