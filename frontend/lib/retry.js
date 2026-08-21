@@ -25,6 +25,10 @@ const PERMANENT = [
   /not implemented|unsupported|no AI writer configured|no .* key\b/i,
   /nothing to publish|has no media|needs a video or at least one image/i,
   /duplicate|already (posted|published)/i,
+  // Platform link policy. Pinterest rejects redirects and shorteners, and
+  // says repeat attempts put the account at risk — so this is the one
+  // failure where retrying is actively worse than stopping.
+  /funnel page|shortened and redirected|redirected links are blocked|link.*not allowed|blocked domain/i,
 ];
 
 export function classifyFailure(error) {

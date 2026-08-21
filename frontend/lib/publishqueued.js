@@ -13,11 +13,41 @@ import { withUserKeys } from './keycontext.js';
 import { secretForCredential } from './credentials.js';
 import { classifyFailure, nextAttemptAt, exhaustedMessage, MAX_ATTEMPTS } from './retry.js';
 
-// The link that actually goes out on a post: our tracker, which records the
-// click and forwards to the store. Falls back to the raw URL when the app has
-// no public base (so a local run still produces a working link).
-export function trackedLink(post) {
+// Platforms that refuse a redirect in a post's link.
+//
+// Pinterest treats any hop through another domain as a shortener or a "funnel
+// page" and rejects the pin outright — and repeat attempts put the account at
+// risk, which is a far worse outcome than losing a click count. Nothing about
+// this is specific to our domain: no redirector we could host would pass.
+const NO_REDIRECT_PLATFORMS = new Set(['pinterest']);
+
+// Attribution without a redirect. The destination sees which platform sent the
+// visitor through its own analytics, which is what the tracker was for; we just
+// do not get to count the click ourselves.
+function taggedLink(destination, platform, postId) {
+  try {
+    const url = new URL(destination);
+    if (!url.searchParams.has('utm_source')) url.searchParams.set('utm_source', platform);
+    if (!url.searchParams.has('utm_medium')) url.searchParams.set('utm_medium', 'social');
+    if (!url.searchParams.has('utm_campaign')) url.searchParams.set('utm_campaign', 'postly');
+    url.searchParams.set('utm_content', String(postId));
+    return url.toString();
+  } catch {
+    // Not a parseable URL — send it exactly as the user typed it rather than
+    // mangling it into something that will not resolve.
+    return destination;
+  }
+}
+
+// The link that goes out on a post: our tracker, which records the click and
+// forwards to the destination. Falls back to the raw URL when the app has no
+// public base (so a local run still produces a working link), and skips the
+// tracker entirely on platforms that ban redirects.
+export function trackedLink(post, platform = post.platform) {
   if (!post.destination_url) return '';
+  if (NO_REDIRECT_PLATFORMS.has(platform)) {
+    return taggedLink(post.destination_url, platform, post.id);
+  }
   const base = appBaseUrl();
   if (!/^https?:\/\//i.test(base)) return post.destination_url;
   return `${base}/r/${post.id}`;
