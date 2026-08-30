@@ -80,6 +80,7 @@ export function buildPrompts({
       ? '11. SCRIPT: write "scenes" — an array of exactly 5 or 6 objects, each { "narration": string, "image_prompt": string }, telling ONE continuous story in order. ' +
         '"narration" is the spoken voiceover for that scene: ONE sentence of 12-20 words, plain spoken English, no emojis, no hashtags, no stage directions, no "scene 1" labels — it is read aloud word for word. ' +
         'The first narration is the hook (a question or a surprising fact), the middle ones build the story or give the tips, the last one is the spoken call to action. ' +
+        'THE PRODUCT MUST BE VISIBLE AND FINISHED IN AT LEAST TWO SCENES so a viewer can tell what is being sold with the sound off. ' +
         '"image_prompt" is a one-sentence photo scene illustrating what is being said, framed VERTICALLY (portrait). ' +
         'CRITICAL FOR CONSISTENCY: invent ONE main character and repeat the exact same physical description word-for-word in every image_prompt (for example a full physical description such as age, hair, clothing — invented to suit THIS brand\'s audience, not a default), and keep the same setting. Never mention brands, logos, or any text appearing in the images.\n' +
         'Respond ONLY with a valid JSON object with exactly these keys: "caption" (string: hook line, blank line, then the body per the rules above), ' +
@@ -93,6 +94,7 @@ export function buildPrompts({
           'For a promo post: slide 1 is the problem on someone\'s face; the middle slide(s) are the turning point with the product in use; ' +
           'the last is the payoff, the same person visibly happier, holding the result up.\n' +
           'For a tips post: one scene per tip, in the same order as the tips.\n' +
+          'THE PRODUCT MUST BE VISIBLE AND FINISHED IN AT LEAST TWO SLIDES — a viewer has to tell what is being sold without reading a word. Show the printable already coloured in, the candle lit, the garment worn. Blank paper and empty surfaces sell nothing.\n' +
           'CRITICAL FOR CONSISTENCY: invent ONE main character and repeat their exact physical description word-for-word in every scene ' +
           '(invent one that fits THIS brand\'s actual audience — describe age, hair and clothing in the same words every time), and keep the same setting and time of day throughout. ' +
           'Never mention brands, logos, or any text appearing in the images.\n' +
@@ -102,6 +104,8 @@ export function buildPrompts({
           'It must show ONE person, close enough to read their face, mid-action and mid-emotion — not a styled flat-lay and not an empty room. ' +
           'Name the subject, what they are doing, where, and the light ' +
           '(the subject must be someone from THIS brand\'s audience doing something this brand\'s product is actually for). ' +
+          'THE PRODUCT MUST BE VISIBLE AND FINISHED IN THE FRAME. A viewer has to tell what is being sold without reading a word: show the printable as a page already coloured in, the candle lit, the meal plated, the garment worn. Blank paper, closed boxes and empty surfaces sell nothing.' + 
+          
           'Never mention brands, logos, text, or words appearing in the image.\n' +
           'Respond ONLY with a valid JSON object with exactly these keys: "caption" (string: hook line, blank line, then the body per the rules above), ' +
           '"hashtags" (array of 6-10 strings, no # symbol), "cta" (string, one short line), "image_prompt" (string, one sentence).';
@@ -180,24 +184,92 @@ ${ownRules}` : '',
 // against everything else on the phone, so it is directed differently: the
 // subject fills it, the face is legible, and the background is thrown away.
 // A pretty wide shot of a room is invisible at that size.
-export function finishImagePrompt(scene, tone = 'warm', { hero = false } = {}) {
-  const framing = hero
-    ? 'tight compelling composition, subject fills the frame, face clearly visible and expressive, ' +
-      'strong subject-background separation, background thrown far out of focus, 85mm portrait lens, '
-    : 'natural candid framing, 50mm lens, ';
+// How each tone actually looks through a lens.
+//
+// The tone used to be dropped into the prompt as a bare adjective ("luxury /
+// premium mood"), which a diffusion model largely ignores — it is a word about
+// feeling, not about light. Each one is now a set of concrete photographic
+// choices, which is the difference between a picture that matches the brand and
+// one that happens to be in the same folder.
+const LOOKS = {
+  'warm and cozy':
+    'golden hour light raking through a window, amber and cream palette, soft atmospheric haze, '
+    + 'warm skin tones, gentle contrast',
+  professional:
+    'clean bright daylight, cool neutral palette with one restrained accent colour, crisp detail, '
+    + 'uncluttered background, confident and composed',
+  'luxury / premium':
+    'low-key directional light, deep controlled shadows, rich muted palette, '
+    + 'linen and stone and brushed metal textures, generous negative space, quiet and expensive',
+  playful:
+    'bright bouncy daylight, saturated cheerful palette, high-key exposure, '
+    + 'a sense of movement caught mid-action',
+  'bold and energetic':
+    'hard directional light with defined shadows, high colour contrast, one dominant saturated hue, '
+    + 'dynamic slightly low camera angle',
+  'friendly and engaging':
+    'soft natural daylight, fresh airy palette, relaxed open body language, inviting and unposed',
+};
 
-  return (
-    `${scene}, authentic documentary lifestyle photograph, ${tone} mood, ` +
-    framing +
-    'soft directional window light, gentle highlight falloff, rich true-to-life colour, ' +
-    'crisp focus on the eyes, fine skin texture, shot on Kodak Portra 400, ' +
-    'real unposed moment, not a stock photo, not a studio setup, ' +
-    // Repeated and varied on purpose: diffusion models leak text into images at
-    // the slightest excuse, and a caption baked into the picture is the one
-    // defect that makes a post unusable rather than merely mediocre.
-    'absolutely no text, no words, no letters, no numbers, no captions, no logos, ' +
-    'no watermark, no signature, no borders, no collage, no split screen'
-  );
+// What the picture has to accomplish, which is not the same for every post.
+const INTENTS = {
+  promo:
+    'the product is the hero of the frame, in use and clearly desirable, '
+    + 'shown at the moment it delivers what the buyer wanted',
+  tips:
+    'the frame demonstrates the advice clearly enough to read at a glance, hands mid-task, '
+    + 'the useful detail unmistakably in focus',
+  engage:
+    'a candid relatable human moment, imperfect and true to life, the kind of picture '
+    + 'someone would send to a friend saying "this is so us"',
+};
+
+// Flux reads a prompt as things to draw, not as a list of prohibitions, so
+// "no deformed hands" can summon the very thing it names. Anything that has a
+// positive form is therefore asserted rather than forbidden, and the short
+// exclusion list keeps only the cases where naming the token genuinely
+// suppresses it — text and branding, which every model overproduces and which
+// are the one defect that makes a post unusable rather than merely mediocre.
+const QUALITY =
+  'anatomically correct hands with five fingers, natural relaxed expression, '
+  + 'clean unblemished composition, photographic realism';
+
+const NEVER = 'no text, no lettering, no watermark, no logo, no signature';
+
+// Wraps the model-written scene in a look the brand chose and a treatment that
+// sells. `hero` is the frame that has to survive being a thumbnail — slide one
+// of a carousel, or a single image — where it competes at about 4cm wide
+// against everything else on the phone.
+export function finishImagePrompt(scene, tone = 'warm and cozy', { hero = false, postType } = {}) {
+  const look = LOOKS[tone] || LOOKS['warm and cozy'];
+  const intent = INTENTS[postType] || '';
+
+  // A thumbnail needs a face and a single subject; a slide seen after the swipe
+  // can afford the wider frame that would be illegible as a thumbnail.
+  const framing = hero
+    ? 'tight editorial composition, single clear subject filling the frame, '
+      + 'face large and readable with genuine emotion, subject placed on a third, '
+      + 'clean uncluttered space in the upper area of the frame, '
+      + 'strong subject-background separation, background beautifully out of focus, '
+      + '85mm f/1.8 portrait lens'
+    : 'natural environmental framing with room to breathe, balanced composition, '
+      + 'foreground and background layered for depth, 50mm f/2 lens';
+
+  return [
+    scene,
+    intent,
+    'premium editorial lifestyle photography for a brand campaign',
+    look,
+    framing,
+    // The craft terms that separate a photograph from a render.
+    'sharp tack focus on the eyes, natural skin texture with visible pores, '
+    + 'true-to-life colour with a considered grade, believable shadows and reflections, '
+    + 'shot on Kodak Portra 400, fine natural film grain, high dynamic range',
+    QUALITY,
+    // Last, and deliberately short: a long exclusion list dilutes every token
+    // before it without suppressing anything more.
+    NEVER,
+  ].filter(Boolean).join(', ');
 }
 
 // ---------------------------------------------------------------------------
@@ -537,12 +609,12 @@ export async function generateImage(imagePrompt, dims, { models = ['flux', 'turb
 // dropped rather than published as a mismatched set — except for video, where
 // each frame is scaled to the canvas anyway and dropping one would leave a
 // narration line with nothing on screen (`dropMismatched: false`).
-export async function generateSlides(scenes, { tone, dims, model = 'flux', dropMismatched = true, heroFirst = true }) {
+export async function generateSlides(scenes, { tone, dims, model = 'flux', dropMismatched = true, heroFirst = true, postType }) {
   const seedBase = Math.floor(Math.random() * 1000000);
   // Only the first slide is the thumbnail; the rest are seen after the swipe,
   // where a wider, calmer frame reads better than another tight close-up.
   const render = (scene, i, attempt) =>
-    generateImage(finishImagePrompt(scene, tone, { hero: heroFirst && i === 0 }), dims, {
+    generateImage(finishImagePrompt(scene, tone, { hero: heroFirst && i === 0, postType }), dims, {
       models: [model],
       seed: seedBase + i * 101 + attempt * 7919,
     });
@@ -1019,6 +1091,7 @@ export async function generateContent({ platform, input, brand }) {
   if (input.format === 'video' && copy.scenes?.length >= 2) {
     const { slides } = await generateSlides(copy.scenes.map((s) => s.imagePrompt), {
       tone: input.tone,
+      postType: input.postType,
       dims: VIDEO_DIMS,
       dropMismatched: false,
     });
@@ -1042,6 +1115,7 @@ export async function generateContent({ platform, input, brand }) {
   if (input.format === 'carousel' && copy.imageScenes?.length >= 2) {
     const { slides } = await generateSlides(copy.imageScenes, {
       tone: input.tone,
+      postType: input.postType,
       dims: imageDimsFor(platform, input.format),
     });
     const imageUrls = slides.map((s) => s.imageUrl);
@@ -1051,7 +1125,7 @@ export async function generateContent({ platform, input, brand }) {
   // A single image IS the thumbnail, so it always gets the hero treatment.
   const scene = copy.imageScene || copy.imageScenes?.[0] || prompts.imagePrompt;
   const img = await generateImage(
-    finishImagePrompt(scene, input.tone, { hero: true }),
+    finishImagePrompt(scene, input.tone, { hero: true, postType: input.postType }),
     imageDimsFor(platform, input.format)
   );
   return { ...copy, imageUrl: img.imageUrl, imageUrls: [img.imageUrl], subject: prompts.subject };
