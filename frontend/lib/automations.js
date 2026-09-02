@@ -319,7 +319,18 @@ export async function runAutomation(automation, {
 
   for (const [i, slot] of slots.entries()) {
     let complete = true;
-    for (const platform of platforms) {
+    // Start each slot on a different platform.
+    //
+    // The list was walked in the order it was stored, so when a tick ran out of
+    // time — which it did on every run — the same platform was served first
+    // every time and the ones after it were never reached. Instagram published
+    // daily while Pinterest, second in the array, went weeks without a post
+    // that the run log still cheerfully recorded as "ok".
+    const order = platforms.map(
+      (_, n) => platforms[(n + i + rotation) % platforms.length]
+    );
+
+    for (const platform of order) {
       // Stop cleanly rather than being killed halfway through an insert.
       if (made >= maxPosts || Date.now() > deadline) {
         ranOutOfTime = true;

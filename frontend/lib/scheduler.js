@@ -130,7 +130,7 @@ async function generateDue({ now, deadline, dryRun }) {
   );
 
   const runs = [];
-  for (const automation of automations) {
+  for (const [index, automation] of automations.entries()) {
     // A dry run answers "what would happen next" without generating a word or
     // publishing anything — the only safe way to check a live automation's
     // wiring against real connected accounts.
@@ -167,10 +167,21 @@ async function generateDue({ now, deadline, dryRun }) {
     }
 
     try {
+      // Each automation gets a fair share of the time that is actually left,
+      // not a flat 50 seconds. Generating one post costs 40-60s, so the old
+      // fixed cap meant every tick made exactly one post and reported
+      // "stopped early" — the whole day's schedule delivered one slot at a
+      // time, and whichever platform sorted first ate the budget every run.
+      const left = automations.length - index;
+      const share = Math.max(
+        55000,                                        // never less than one post
+        Math.floor((remaining(deadline) - 25000) / Math.max(1, left))
+      );
+
       const result = await runAutomation(automation, {
         slots,
         trigger: slots.some((s) => s.late) ? 'catchup' : 'cron',
-        deadline: Math.min(deadline - 8000, Date.now() + 50000),
+        deadline: Math.min(deadline - 15000, Date.now() + share),
       });
 
       // Only advance past slots this run actually completed.
