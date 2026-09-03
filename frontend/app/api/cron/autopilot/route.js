@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { waitUntil } from '@vercel/functions';
 import { runSchedulerTick } from '../../../../lib/scheduler';
 
 export const runtime = 'nodejs';
@@ -30,22 +31,42 @@ async function tick(request) {
   if (!authorized(request)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
-  // Which driver this was. Vercel labels its own cron requests; GitHub's runner
-  // and a hand-run curl are told apart by user agent. Recorded so the app can
-  // say whether a real scheduler is driving this or only an open browser tab.
+
   const url = new URL(request.url);
   const ua = request.headers.get('user-agent') || '';
   const source =
     url.searchParams.get('source')
     || (ua.includes('vercel-cron') ? 'vercel-cron'
-      : ua.includes('curl') ? 'external-cron'
-        : 'external');
+      : /cron-job\.org/i.test(ua) ? 'cron-job.org'
+        : ua.includes('curl') ? 'external-cron'
+          : 'external');
 
   // A dry run answers "is this wired up correctly" without generating a word
   // or publishing anything — the only safe way to test against live accounts.
   const dryRun = url.searchParams.get('dry') === '1';
 
+  // A full tick takes a minute or two: generating a post costs 40-60s and a
+  // tick does several. Most external schedulers cap a request far below that —
+  // cron-job.org's free tier aborts at 30 seconds — and then record the
+  // timeout as a failure, disabling the job after enough of them. The work
+  // itself was completing fine; only the answer arrived too late.
+  //
+  // So the caller may ask to be released as soon as the work is safely under
+  // way. Vercel keeps the function alive through waitUntil, so the tick still
+  // runs to completion; the scheduler just is not made to wait for it. What it
+  // did is recorded in the heartbeat and on /admin either way.
+  const detach = url.searchParams.get('wait') === '0';
+
   try {
+    if (detach && !dryRun) {
+      waitUntil(
+        runSchedulerTick({ budgetMs: 240000, source }).catch((e) => {
+          console.error('detached scheduler tick failed:', e.message);
+        })
+      );
+      return NextResponse.json({ ok: true, started: true, source, detached: true });
+    }
+
     // Comfortably inside maxDuration, so the tick reports what it did rather
     // than being killed with the work half done and no record of it.
     const result = await runSchedulerTick({ budgetMs: 240000, dryRun, source });
