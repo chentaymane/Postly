@@ -770,6 +770,23 @@ export default function AutomationsPage() {
       {toast && <div className="toast" role="status">{toast}</div>}
 
       {!loading && <SchedulerHealth health={health} onKick={kick} kicking={kicking} />}
+
+      {/* Polling every five minutes to serve a handful of moments a day is what
+          exhausted the database quota. This is the expression that covers the
+          same times for a fraction of the wake-ups. */}
+      {!loading && health?.cron && (
+        <div className="notice info">
+          <span className="notice-icon"><NavIcon name="clock" size={16} /></span>
+          <span className="notice-body">
+            Set your scheduler to{' '}
+            <code>{health.cron.expression}</code>{' '}
+            — {health.cron.ticksPerDay} runs a day instead of{' '}
+            {health.cron.ticksPerDayIfPolling}, covering exactly your posting hours.
+            Polling around the clock keeps a serverless database awake permanently
+            and burns its free allowance in about a week.
+          </span>
+        </div>
+      )}
       {!loading && <RenderWorkerHealth health={health} />}
 
       {loading ? (

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { currentUserId } from '../../../lib/auth';
 import { readHeartbeat, runSchedulerTick, LEAD_MS } from '../../../lib/scheduler';
 import { readWorkerHeartbeat } from '../../../lib/renderworker';
+import { cronHintFor } from '../../../lib/schedule';
 import { query } from '../../../lib/db';
 
 export const runtime = 'nodejs';
@@ -46,6 +47,14 @@ export async function GET() {
     [userId]
   );
 
+  // What an external pinger should actually be set to. Polling around the
+  // clock to serve a handful of moments a day is what exhausted the database
+  // quota, so the app now tells the user the cheap expression for THEIR times.
+  const { rows: autos } = await query(
+    'SELECT enabled, times FROM automations WHERE user_id = $1', [userId]
+  );
+  const cron = cronHintFor(autos);
+
   const p = pending[0] || {};
   return NextResponse.json({
     lastTickAt: beat?.at || null,
@@ -62,6 +71,7 @@ export async function GET() {
     source: beat?.source || null,
     last: beat ? { generated: beat.generated, delivered: beat.delivered, failed: beat.failed, ms: beat.ms } : null,
     leadMinutes: Math.round(LEAD_MS / 60000),
+    cron,
     overdue: Number(p.overdue || 0),
     upcoming: Number(p.upcoming || 0),
     retrying: Number(p.retrying || 0),

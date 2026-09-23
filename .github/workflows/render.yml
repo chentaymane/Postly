@@ -31,7 +31,10 @@ name: render
 on:
   workflow_dispatch:
   schedule:
-    - cron: '*/30 * * * *'
+    # Videos are dispatched on demand by the app when a draft needs one
+    # (GITHUB_DISPATCH_TOKEN). This is only the safety net for when that
+    # dispatch fails, so it runs a few times a day rather than 48.
+    - cron: '15 */6 * * *'
 
 # One renderer at a time. Two concurrent runs would race for the same job, and
 # the loser wastes minutes rendering something already claimed.

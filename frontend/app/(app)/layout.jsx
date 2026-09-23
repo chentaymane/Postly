@@ -5,7 +5,6 @@ import { query } from '../../lib/db';
 import { PostlyLogo } from '../../components/BrandIcons';
 import { SidebarNav, DrawerNav } from '../../components/NavLinks';
 import ThemeToggle from '../../components/ThemeToggle';
-import SchedulerPulse from '../../components/SchedulerPulse';
 import { isAdminUser } from '../../lib/admin';
 
 // Chrome for the signed-in application pages.
@@ -107,8 +106,6 @@ export default async function AppLayout({ children }) {
         <SiteFooter />
       </div>
 
-      {/* Keeps posts going out on time when the host throttles the cron. */}
-      <SchedulerPulse />
     </div>
   );
 }

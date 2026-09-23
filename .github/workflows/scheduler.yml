@@ -30,10 +30,17 @@
 
 name: scheduler
 
+# No schedule any more.
+#
+# This polled every five minutes alongside cron-job.org, and every poll woke a
+# serverless database that suspends when idle. Two pollers on the same endpoint
+# bought nothing: the tick is idempotent, so the second one only ever found the
+# work already done — while keeping the compute billing around the clock.
+#
+# Kept as a manual trigger, which is genuinely useful for testing a change
+# without waiting for the next real tick.
 on:
-  schedule:
-    - cron: '*/5 * * * *'
-  workflow_dispatch:        # lets you run one by hand from the Actions tab
+  workflow_dispatch:
 
 # A slow tick must not have a second one stacked on top of it.
 concurrency:

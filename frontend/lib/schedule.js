@@ -224,3 +224,44 @@ export function timezoneLabel(tz, at = new Date()) {
     return zone;
   }
 }
+
+// The crontab an external scheduler should actually use.
+//
+// Postly asked for a tick every five minutes, which is the right answer for
+// precision and the wrong one for cost: a serverless Postgres suspends its
+// compute after a few idle minutes, and a poll that never lets it idle bills
+// around the clock. Roughly 288 wake-ups a day were being spent to serve five
+// posting moments.
+//
+// This emits an expression that fires only around the times that exist, with a
+// couple of retries after each so a missed or slow tick still catches up. The
+// database sleeps the rest of the day.
+export function cronHintFor(automations, { retries = 2, stepMinutes = 5 } = {}) {
+  const hours = new Set();
+  const minutes = new Set();
+
+  for (const a of automations || []) {
+    if (!a?.enabled) continue;
+    for (const t of normaliseTimes(a.times)) {
+      const parsed = parseTime(t);
+      if (!parsed) continue;
+      hours.add(parsed.hh);
+      for (let n = 0; n <= retries; n++) {
+        // A retry that spills past the hour is dropped rather than wrapped:
+        // wrapping would add an hour nothing is scheduled in.
+        const m = parsed.mm + n * stepMinutes;
+        if (m < 60) minutes.add(m);
+      }
+    }
+  }
+
+  if (hours.size === 0) return null;
+
+  const asList = (set) => Array.from(set).sort((x, y) => x - y).join(',');
+  return {
+    expression: `${asList(minutes)} ${asList(hours)} * * *`,
+    ticksPerDay: minutes.size * hours.size,
+    // What the every-five-minutes advice actually costs, for comparison.
+    ticksPerDayIfPolling: Math.round((24 * 60) / stepMinutes),
+  };
+}
