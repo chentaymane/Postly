@@ -49,9 +49,14 @@ export async function GET() {
 
   // What an external pinger should actually be set to. Polling around the
   // clock to serve a handful of moments a day is what exhausted the database
-  // quota, so the app now tells the user the cheap expression for THEIR times.
+  // quota, so the app computes the cheap expression instead.
+  //
+  // Across EVERY automation on the instance, not just this user's: there is one
+  // pinger for the whole deployment, so an expression built from one account's
+  // hours would silently strand every other account's posts. Only the set of
+  // hours leaves this query — no rows, no owners.
   const { rows: autos } = await query(
-    'SELECT enabled, times FROM automations WHERE user_id = $1', [userId]
+    'SELECT enabled, times FROM automations WHERE enabled = true'
   );
   const cron = cronHintFor(autos);
 
