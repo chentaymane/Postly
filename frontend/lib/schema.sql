@@ -484,3 +484,56 @@ COMMENT ON COLUMN user_credentials.status IS 'unverified | ok | invalid | unread
 
 ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
+
+-- ---------------------------------------------------------------------------
+-- The things you actually sell.
+--
+-- Until now a post could only talk about the business in general — "printable
+-- colouring books" — so every caption was about a category and every link went
+-- to the shop's front door. A reader who wanted the thing in the picture had to
+-- go and find it.
+--
+-- A product gives a post something specific to be about: its own title, its own
+-- selling points, its own link, and optionally its own photograph. Automations
+-- rotate through them so a catalogue of twenty books becomes twenty posts
+-- rather than the same post twenty times.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS products (
+    id          BIGSERIAL PRIMARY KEY,
+    user_id     BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    description TEXT,            -- what it is and who it suits
+    benefits    TEXT,            -- why someone buys THIS one
+    url         TEXT,            -- where to buy it; the post links straight here
+    image_url   TEXT,            -- the real product shot, when there is one
+    price       TEXT,            -- free text: currencies and formats vary
+    tags        TEXT,            -- comma separated, for the writer's context
+    enabled     BOOLEAN NOT NULL DEFAULT true,
+    -- Which product the rotation should reach for next. Incremented when a post
+    -- is made about it, so an automation works through the catalogue evenly
+    -- instead of favouring whatever sorts first.
+    times_used  INT NOT NULL DEFAULT 0,
+    last_used_at TIMESTAMPTZ,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_products_user ON products (user_id, enabled);
+-- The rotation's own query: least-used first.
+CREATE INDEX IF NOT EXISTS idx_products_rotation
+    ON products (user_id, times_used, last_used_at NULLS FIRST) WHERE enabled;
+
+-- Which product a post was made about, so the dashboard can say which books
+-- actually earn clicks rather than only which platforms do.
+ALTER TABLE queued_posts
+    ADD COLUMN IF NOT EXISTS product_id BIGINT REFERENCES products(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_queued_posts_product ON queued_posts (product_id);
+
+-- An automation may be pinned to one product, or left to rotate through all of
+-- them. NULL means rotate.
+ALTER TABLE automations
+    ADD COLUMN IF NOT EXISTS product_id BIGINT REFERENCES products(id) ON DELETE SET NULL;
+-- Whether the product's own photograph should be used instead of generated art.
+ALTER TABLE automations
+    ADD COLUMN IF NOT EXISTS use_product_image BOOLEAN NOT NULL DEFAULT false;

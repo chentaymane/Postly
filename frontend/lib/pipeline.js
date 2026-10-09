@@ -15,6 +15,7 @@ import {
 import { createZernioPost, listRecentPosts as listRecentZernioPosts } from './zernio.js';
 import { modelFor, forgetModel, isModelError } from './models.js';
 import { persistImage, persistImages } from './imagestore.js';
+import { productBrief } from './products.js';
 
 // ---------------------------------------------------------------------------
 // Prompts
@@ -27,9 +28,14 @@ import { persistImage, persistImages } from './imagestore.js';
 // trust) | 'engage' (fun, relatable, conversation-starting).
 export function buildPrompts({
   theme, productName, description, tone, forPinterest, platform, brand,
-  postType = 'promo', format = 'single', customPrompt = '',
+  postType = 'promo', format = 'single', customPrompt = '', product = null,
 }) {
-  const subject = productName ? `${productName} — ${theme}` : theme;
+  // A product makes the post about one real item rather than the shop in
+  // general, which is the difference between "our colouring books" and a
+  // caption someone can act on.
+  const subject = product?.name
+    ? `${product.name}${theme ? ` — ${theme}` : ''}`
+    : (productName ? `${productName} — ${theme}` : theme);
 
   const pinterestKeys = forPinterest
     ? ' Also include: "pin_title" (string, max 90 chars: a keyword-rich, search-optimised title buyers would type into Pinterest search), "pin_description" (string, max 480 chars: natural keyword-rich description ending with a reason to click through).'
@@ -150,7 +156,10 @@ export function buildPrompts({
   const banned = String(brand?.banned_words || '').trim();
   const language = String(brand?.language || '').trim();
 
+  const brief = product ? productBrief(product) : '';
+
   const instructionBlock = [
+    brief,
     language && language.toLowerCase() !== 'english'
       ? `WRITE EVERYTHING IN ${language.toUpperCase()} — caption, hashtags, CTA and titles.`
       : '',
@@ -1109,7 +1118,7 @@ async function publishViaZernio(conn, content, platform, scheduledAt) {
 // Generates copy + image for one platform WITHOUT publishing. The image scene
 // is written by the copy model for THIS post (a real moment with a person),
 // then wrapped in a consistent photographic style.
-export async function generateContent({ platform, input, brand }) {
+export async function generateContent({ platform, input, brand, product = null }) {
   const forPinterest = platform === 'pinterest';
   // Every generated image is copied into our own storage before it leaves this
   // function. The generator makes a picture per request rather than serving a
@@ -1117,7 +1126,7 @@ export async function generateContent({ platform, input, brand }) {
   // limited (which is what broke Instagram carousels) and can even be handed a
   // different image than the one approved in Review.
   const assetKey = `${platform}-${Date.now().toString(36)}`;
-  const prompts = buildPrompts({ ...input, forPinterest, platform, brand });
+  const prompts = buildPrompts({ ...input, forPinterest, platform, brand, product });
   const copy = await generateCopy(prompts, prompts.subject);
 
   // Video: a narrated script plus one vertical frame per scene. Rendering

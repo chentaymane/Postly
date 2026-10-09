@@ -12,6 +12,7 @@ import { withUserKeys } from './keycontext.js';
 import { platformSupportsFormat, formatMismatchReason } from './platforms.js';
 import { dueSlots, nextRunAt as slotNextRunAt, safeTimezone, normaliseTimes } from './schedule.js';
 import { requestRender } from './renderdispatch.js';
+import { pickProduct, markProductUsed } from './products.js';
 
 export const POST_TYPES = ['promo', 'tips', 'engage', 'mixed'];
 export const FORMATS = ['single', 'carousel', 'video'];
@@ -60,15 +61,19 @@ function deliveryFor(conn) {
 }
 
 // Builds the generation input for one slot.
-function inputFor(automation, brand, { index, rotation }) {
+function inputFor(automation, brand, { index, rotation, product }) {
   const postType =
     automation.post_type === 'mixed'
       ? TYPE_ROTATION[(index + rotation) % TYPE_ROTATION.length]
       : automation.post_type;
 
-  const theme =
-    automation.theme?.trim() ||
-    `${brand?.products || brand?.store_name || 'our products'} — ${ANGLES[(index + rotation) % ANGLES.length]}`;
+  // With a product in hand the angle is all the theme needs to supply; the
+  // product's own name and details arrive separately and would only be
+  // duplicated here.
+  const angle = ANGLES[(index + rotation) % ANGLES.length];
+  const theme = automation.theme?.trim()
+    || (product ? angle
+      : `${brand?.products || brand?.store_name || 'our products'} — ${angle}`);
 
   // Brand rules apply to every post; the automation's are added on top rather
   // than replacing them. Overriding silently would make a brand-wide rule
@@ -86,7 +91,10 @@ function inputFor(automation, brand, { index, rotation }) {
     productName: brand?.store_name || '',
     description: brand?.benefits || '',
     tone: automation.tone || brand?.default_tone || 'friendly and engaging',
-    destinationUrl: brand?.store_url || '',
+    // The link lands on the item the post is about, not the shop's front
+    // door. A reader who wants the thing in the picture should not have to
+    // go and find it.
+    destinationUrl: product?.url || brand?.store_url || '',
     customPrompt,
   };
 }
@@ -123,7 +131,7 @@ async function releaseSlot(postId) {
 // Generates one post for one slot and puts it wherever it belongs: a draft for
 // review, a scheduled post the aggregator will release, a post held here for
 // timed delivery, or published immediately when its slot has already passed.
-async function runSlot(automation, { platform, slot, brand, index, rotation }) {
+async function runSlot(automation, { platform, slot, brand, index, rotation, product }) {
   // A platform that cannot take this format is checked before anything is
   // generated. TikTok takes video only, so an image automation with TikTok
   // selected used to write and pay for a post the platform then rejected —
@@ -150,12 +158,12 @@ async function runSlot(automation, { platform, slot, brand, index, rotation }) {
     return { platform, slot: slot.key, ok: true, status: 'already made', skipped: true };
   }
 
-  const input = inputFor(automation, brand, { index, rotation });
+  const input = inputFor(automation, brand, { index, rotation, product });
 
   let content;
   try {
     content = await withUserKeys(automation.user_id, () =>
-      generateContent({ platform, input, brand })
+      generateContent({ platform, input, brand, product })
     );
   } catch (e) {
     await releaseSlot(claimed.id);
@@ -194,6 +202,7 @@ async function runSlot(automation, { platform, slot, brand, index, rotation }) {
         hashtags = $6, cta = $7, pin_title = $8, pin_description = $9,
         image_url = $10, image_urls = $11::jsonb, script = $12::jsonb,
         video_status = $13, destination_url = $14, delivery = $15,
+        product_id = $16,
         error_message = NULL, updated_at = now()
       WHERE id = $1
       RETURNING *`,
@@ -207,6 +216,7 @@ async function runSlot(automation, { platform, slot, brand, index, rotation }) {
       isVideo ? 'pending' : null,
       input.destinationUrl || null,
       mustWait ? null : delivery,
+      product?.id || null,
     ]
   );
   const post = filled[0];
@@ -319,6 +329,14 @@ export async function runAutomation(automation, {
 
   for (const [i, slot] of slots.entries()) {
     let complete = true;
+
+    // One product per slot, shared by every platform in it: the same book on
+    // Instagram and Pinterest at 09:00 is one campaign, whereas a different
+    // book per platform would read as two unrelated posts.
+    const product = await pickProduct(automation.user_id, {
+      pinnedId: automation.product_id,
+    });
+
     // Start each slot on a different platform.
     //
     // The list was walked in the order it was stored, so when a tick ran out of
@@ -340,13 +358,16 @@ export async function runAutomation(automation, {
       made++;
       try {
         results.push(await runSlot(automation, {
-          platform, slot, brand, index: i, rotation,
+          platform, slot, brand, index: i, rotation, product,
         }));
       } catch (e) {
         results.push({ platform, slot: slot.key, ok: false, error: e.message });
       }
     }
     if (!complete) break;
+    // Counted once per slot so the catalogue advances by one book a slot,
+    // not by one per platform.
+    if (!automation.product_id) await markProductUsed(product?.id);
     processedThrough = slot.at;
   }
 
