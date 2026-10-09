@@ -14,6 +14,7 @@ import {
 } from './socialapi.js';
 import { createZernioPost, listRecentPosts as listRecentZernioPosts } from './zernio.js';
 import { modelFor, forgetModel, isModelError } from './models.js';
+import { persistImage, persistImages } from './imagestore.js';
 
 // ---------------------------------------------------------------------------
 // Prompts
@@ -561,7 +562,22 @@ export function readImageSize(buf) {
   return null;
 }
 
-export async function warmImage(url, timeoutMs = 45000) {
+export async function warmImage(url, timeoutMs = 45000, attempts = 3) {
+  let lastError = null;
+  for (let n = 0; n < attempts; n++) {
+    // 402 and 429 are the generator's per-address rate limit, not a verdict on
+    // the request. Waiting is the entire remedy, and giving up on the first one
+    // is how a post ended up carrying a URL that answers 402 to the platform.
+    if (n > 0) await new Promise((r) => setTimeout(r, 1200 * n));
+    const attempt = await warmOnce(url, timeoutMs);
+    if (attempt.ok) return attempt;
+    lastError = attempt.error;
+    if (!/402|429|rate/i.test(String(attempt.error))) break;
+  }
+  return { ok: false, error: lastError };
+}
+
+async function warmOnce(url, timeoutMs) {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
@@ -619,13 +635,18 @@ export async function generateSlides(scenes, { tone, dims, model = 'flux', dropM
       seed: seedBase + i * 101 + attempt * 7919,
     });
 
-  let slides = await Promise.all(scenes.map((scene, i) => render(scene, i, 0)));
+  // One at a time, not Promise.all. The image host rate-limits concurrent
+  // requests from a single address and answers HTTP 402 to all of them, so
+  // asking for four slides at once reliably got four refusals.
+  const slides = [];
+  for (const [i, scene] of scenes.entries()) {
+    slides.push(await render(scene, i, 0));
+  }
 
   const matches = (s) => !s.width || !s.height || (s.width === dims.width && s.height === dims.height);
   const retryIndexes = slides.map((s, i) => (matches(s) ? -1 : i)).filter((i) => i >= 0);
-  if (retryIndexes.length) {
-    const retries = await Promise.all(retryIndexes.map((i) => render(scenes[i], i, 1)));
-    retryIndexes.forEach((i, n) => { slides[i] = retries[n]; });
+  for (const i of retryIndexes) {
+    slides[i] = await render(scenes[i], i, 1);
   }
 
   if (!dropMismatched) return { slides, dropped: 0 };
@@ -650,14 +671,13 @@ export const PUBLISH_TIMEOUT_MS = 40000;
 // are ignored: this is an optimisation, not a gate on publishing.
 async function warmAll(urls) {
   if (!urls?.length) return;
-  await Promise.all(
-    urls.map((u) =>
-      fetch(u, { signal: AbortSignal.timeout(45000) }).then(
-        (r) => r.arrayBuffer().catch(() => null),
-        () => null
-      )
-    )
-  ).catch(() => {});
+  for (const u of urls) {
+    // Nothing to warm on our own storage, and warming them in parallel is what
+    // triggered the generator's per-address rate limit in the first place.
+    if (/\.public\.blob\.vercel-storage\.com/i.test(u)) continue;
+    await fetch(u, { signal: AbortSignal.timeout(45000) })
+      .then((r) => r.arrayBuffer().catch(() => null), () => null);
+  }
 }
 
 export function slideUrls(content) {
@@ -1082,6 +1102,12 @@ async function publishViaZernio(conn, content, platform, scheduledAt) {
 // then wrapped in a consistent photographic style.
 export async function generateContent({ platform, input, brand }) {
   const forPinterest = platform === 'pinterest';
+  // Every generated image is copied into our own storage before it leaves this
+  // function. The generator makes a picture per request rather than serving a
+  // file, so its URL is a recipe: the platform fetching it later can be rate
+  // limited (which is what broke Instagram carousels) and can even be handed a
+  // different image than the one approved in Review.
+  const assetKey = `${platform}-${Date.now().toString(36)}`;
   const prompts = buildPrompts({ ...input, forPinterest, platform, brand });
   const copy = await generateCopy(prompts, prompts.subject);
 
@@ -1100,7 +1126,9 @@ export async function generateContent({ platform, input, brand }) {
       image_prompt: s.imagePrompt,
       image_url: slides[i].imageUrl,
     }));
-    const imageUrls = scenes.map((s) => s.image_url);
+    const imageUrls = await persistImages(scenes.map((s) => s.image_url), { prefix: assetKey });
+    // The worker renders from these, so the scenes must point at the copies too.
+    scenes.forEach((scene, i) => { scene.image_url = imageUrls[i] || scene.image_url; });
     return {
       ...copy,
       scenes,
@@ -1118,7 +1146,7 @@ export async function generateContent({ platform, input, brand }) {
       postType: input.postType,
       dims: imageDimsFor(platform, input.format),
     });
-    const imageUrls = slides.map((s) => s.imageUrl);
+    const imageUrls = await persistImages(slides.map((s) => s.imageUrl), { prefix: assetKey });
     return { ...copy, imageUrl: imageUrls[0], imageUrls, subject: prompts.subject };
   }
 
@@ -1128,7 +1156,8 @@ export async function generateContent({ platform, input, brand }) {
     finishImagePrompt(scene, input.tone, { hero: true, postType: input.postType }),
     imageDimsFor(platform, input.format)
   );
-  return { ...copy, imageUrl: img.imageUrl, imageUrls: [img.imageUrl], subject: prompts.subject };
+  const hosted = await persistImage(img.imageUrl, { key: `${assetKey}-1` });
+  return { ...copy, imageUrl: hosted, imageUrls: [hosted], subject: prompts.subject };
 }
 
 // ---------------------------------------------------------------------------
