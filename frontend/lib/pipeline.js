@@ -583,7 +583,13 @@ async function warmOnce(url, timeoutMs) {
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
     const buf = await res.arrayBuffer();
     const size = readImageSize(buf);
-    return { ok: true, bytes: buf.byteLength, width: size?.width || null, height: size?.height || null };
+    // The bytes are kept, not discarded. Warming already downloaded the image;
+    // fetching it a second time to store it would double our exposure to the
+    // generator's rate limit for nothing.
+    return {
+      ok: true, buffer: Buffer.from(buf), bytes: buf.byteLength,
+      width: size?.width || null, height: size?.height || null,
+    };
   } catch (e) {
     return { ok: false, error: e.message };
   }
@@ -599,7 +605,10 @@ export async function generateImage(imagePrompt, dims, { models = ['flux', 'turb
     const url = buildImageUrl(imagePrompt, { ...dims, model, seed });
     const warm = await warmImage(url);
     if (warm.ok) {
-      return { imageUrl: url, model, bytes: warm.bytes, width: warm.width, height: warm.height };
+      return {
+        imageUrl: url, model, buffer: warm.buffer,
+        bytes: warm.bytes, width: warm.width, height: warm.height,
+      };
     }
     lastError = warm.error;
   }
@@ -1126,7 +1135,9 @@ export async function generateContent({ platform, input, brand }) {
       image_prompt: s.imagePrompt,
       image_url: slides[i].imageUrl,
     }));
-    const imageUrls = await persistImages(scenes.map((s) => s.image_url), { prefix: assetKey });
+    const imageUrls = await persistImages(scenes.map((s) => s.image_url), {
+      prefix: assetKey, buffers: slides.map((s) => s.buffer),
+    });
     // The worker renders from these, so the scenes must point at the copies too.
     scenes.forEach((scene, i) => { scene.image_url = imageUrls[i] || scene.image_url; });
     return {
@@ -1146,7 +1157,9 @@ export async function generateContent({ platform, input, brand }) {
       postType: input.postType,
       dims: imageDimsFor(platform, input.format),
     });
-    const imageUrls = await persistImages(slides.map((s) => s.imageUrl), { prefix: assetKey });
+    const imageUrls = await persistImages(slides.map((s) => s.imageUrl), {
+      prefix: assetKey, buffers: slides.map((s) => s.buffer),
+    });
     return { ...copy, imageUrl: imageUrls[0], imageUrls, subject: prompts.subject };
   }
 
@@ -1156,7 +1169,7 @@ export async function generateContent({ platform, input, brand }) {
     finishImagePrompt(scene, input.tone, { hero: true, postType: input.postType }),
     imageDimsFor(platform, input.format)
   );
-  const hosted = await persistImage(img.imageUrl, { key: `${assetKey}-1` });
+  const hosted = await persistImage(img.imageUrl, { key: `${assetKey}-1`, buffer: img.buffer });
   return { ...copy, imageUrl: hosted, imageUrls: [hosted], subject: prompts.subject };
 }
 

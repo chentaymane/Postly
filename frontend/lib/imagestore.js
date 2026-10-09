@@ -65,13 +65,15 @@ async function fetchWithRetry(url, { attempts = 3, timeoutMs = 60000 } = {}) {
 // Copies one generated image into blob storage and returns its public URL.
 // Returns the original URL unchanged when no store is configured, so a
 // self-hosted copy without blob storage still works exactly as before.
-export async function persistImage(url, { key }) {
+export async function persistImage(url, { key, buffer = null }) {
   if (!url || !imageStoreEnabled()) return url;
   // Already ours: re-uploading would just pay for the same bytes twice.
   if (/\.public\.blob\.vercel-storage\.com/i.test(url)) return url;
 
   try {
-    const bytes = await fetchWithRetry(url);
+    // Generation already downloaded this to check its dimensions. Reusing those
+    // bytes halves how often the rate-limited host is asked for the same image.
+    const bytes = buffer || await fetchWithRetry(url);
     const { url: hosted } = await put(`postly/${key}.jpg`, bytes, {
       access: 'public',
       token: blobToken(),
@@ -91,11 +93,12 @@ export async function persistImage(url, { key }) {
 }
 
 // Several images, one after another. Sequential on purpose — see GAP_MS.
-export async function persistImages(urls, { prefix }) {
+export async function persistImages(urls, { prefix, buffers = [] }) {
   const out = [];
   for (const [i, url] of (urls || []).entries()) {
-    if (i > 0) await sleep(GAP_MS);
-    out.push(await persistImage(url, { key: `${prefix}-${i + 1}` }));
+    // No pause needed when the bytes are already in hand.
+    if (i > 0 && !buffers[i]) await sleep(GAP_MS);
+    out.push(await persistImage(url, { key: `${prefix}-${i + 1}`, buffer: buffers[i] || null }));
   }
   return out;
 }
