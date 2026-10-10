@@ -4,25 +4,26 @@ import { useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { NavIcon } from './BrandIcons';
 
-// Grouped rather than ranked: the day-to-day pages and the setup pages are
-// different kinds of work, and a flat list of eight made every visit a search.
+// Seven destinations in two groups. The day-to-day work is one list in the
+// order it happens — see what is coming, make something, set the rules, say
+// what to sell — and the one-off setup sits apart. Review and History were
+// separate pages for what is really one question ("what is going out, and
+// what went out?"), so they now live inside Schedule.
 const GROUPS = [
   {
-    label: 'Publish',
+    label: 'Workspace',
     links: [
-      { href: '/dashboard', label: 'Dashboard', icon: 'dashboard' },
+      { href: '/dashboard', label: 'Home', icon: 'dashboard' },
+      { href: '/schedule', label: 'Schedule', icon: 'calendar' },
       { href: '/create', label: 'Create', icon: 'create' },
-      { href: '/review', label: 'Review', icon: 'review' },
       { href: '/automations', label: 'Automations', icon: 'automation' },
-      { href: '/products', label: 'Products', icon: 'inbox' },
+      { href: '/products', label: 'Products', icon: 'tag' },
     ],
   },
   {
     label: 'Setup',
     links: [
       { href: '/connections', label: 'Connections', icon: 'link' },
-      { href: '/history', label: 'History', icon: 'history' },
-      { href: '/settings/keys', label: 'API keys', icon: 'key' },
       { href: '/settings', label: 'Settings', icon: 'settings' },
     ],
   },
@@ -39,8 +40,10 @@ const ADMIN_GROUP = {
 const ALL = GROUPS.flatMap((g) => g.links);
 
 function isActive(pathname, href) {
-  // /settings must not light up while /settings/keys is open.
-  if (href === '/settings') return pathname === '/settings';
+  // The old Review and History pages are part of Schedule now.
+  if (href === '/schedule') {
+    return ['/schedule', '/review', '/history'].some((p) => pathname.startsWith(p));
+  }
   return pathname.startsWith(href);
 }
 

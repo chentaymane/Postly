@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { query } from '../../../../../lib/db';
 import { currentUserId } from '../../../../../lib/auth';
+import { cancelUpstream } from '../../../../../lib/publishqueued';
 
 export const runtime = 'nodejs';
 
@@ -11,11 +12,7 @@ export async function POST(request, { params }) {
   if (!userId) return NextResponse.json({ error: 'not authenticated' }, { status: 401 });
 
   const { rows } = await query(
-    `SELECT qp.*, sc.provider
-       FROM queued_posts qp
-       LEFT JOIN social_connections sc
-         ON sc.user_id = qp.user_id AND sc.platform = qp.platform AND sc.status = 'connected'
-      WHERE qp.id = $1 AND qp.user_id = $2 AND qp.status = 'scheduled'`,
+    `SELECT * FROM queued_posts WHERE id = $1 AND user_id = $2 AND status = 'scheduled'`,
     [params.id, userId]
   );
   const post = rows[0];
@@ -23,22 +20,7 @@ export async function POST(request, { params }) {
 
   // Only a post the aggregator is holding needs cancelling upstream. One held
   // by Postly has never left this database, so there is nothing to call.
-  let upstream = post.delivery === 'postly' ? 'held here — nothing to cancel' : 'skipped';
-  if (post.published_post_id && post.delivery !== 'postly') {
-    try {
-      if (post.provider === 'socialapi') {
-        const { deletePost } = await import('../../../../../lib/socialapi');
-        await deletePost(post.published_post_id);
-        upstream = 'cancelled';
-      } else if (post.provider === 'zernio') {
-        const { deletePost } = await import('../../../../../lib/zernio');
-        await deletePost(post.published_post_id);
-        upstream = 'cancelled';
-      }
-    } catch (e) {
-      upstream = `cancel failed upstream: ${e.message}`;
-    }
-  }
+  const upstream = await cancelUpstream(post);
 
   // The slot key stays on the row. Cancelling means "not this one" — the
   // scheduler must not helpfully regenerate the post the user just cancelled.
@@ -47,7 +29,7 @@ export async function POST(request, { params }) {
         SET status = 'draft', scheduled_at = NULL, published_post_id = NULL,
             delivery = NULL, error_message = NULL, failure_kind = NULL,
             next_attempt_at = NULL, updated_at = now()
-      WHERE id = $1 AND user_id = $2`,
+      WHERE id = $1 AND user_id = $2 AND status = 'scheduled'`,
     [params.id, userId]
   );
 

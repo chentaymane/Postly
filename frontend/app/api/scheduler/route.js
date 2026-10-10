@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { currentUserId } from '../../../lib/auth';
-import { readHeartbeat, runSchedulerTick, LEAD_MS } from '../../../lib/scheduler';
+import { readHeartbeat, runSchedulerTick, schedulerStatus, PLAN_AHEAD_MS } from '../../../lib/scheduler';
 import { readWorkerHeartbeat } from '../../../lib/renderworker';
 import { cronHintFor } from '../../../lib/schedule';
 import { query } from '../../../lib/db';
@@ -21,8 +21,9 @@ export async function GET() {
   const userId = await currentUserId();
   if (!userId) return NextResponse.json({ error: 'not authenticated' }, { status: 401 });
 
-  const beat = await readHeartbeat();
-  const ageMs = beat?.at ? Date.now() - new Date(beat.at).getTime() : null;
+  const status = await schedulerStatus();
+  const beat = status.beat;
+  const ageMs = status.ageMs;
 
   // The renderer is a separate driver with its own schedule, and it failing is
   // indistinguishable from a slow render unless it is reported on its own.
@@ -64,32 +65,31 @@ export async function GET() {
   return NextResponse.json({
     lastTickAt: beat?.at || null,
     ageMs,
-    // Ticks are asked for every 5 minutes, but GitHub delays scheduled
-    // workflows under load — often by 10-15 minutes. The threshold sits past
-    // that so a normal delay does not cry wolf, while a scheduler that has
-    // actually stopped still shows up within half an hour.
-    healthy: ageMs !== null && ageMs < 25 * 60000,
-    neverRan: !beat,
+    // Judged against the posting minutes it was due to serve, not a fixed
+    // age: a scheduler driven only at posting hours is healthy with a
+    // four-hour-old tick when nothing was due in between.
+    healthy: status.healthy,
+    missedAt: status.missedAt,
+    neverRan: status.neverRan,
     // Which driver last fired it. "browser-tab" means the posting stops the
     // moment this page is closed — worth saying out loud rather than letting a
     // green health bar imply a real scheduler exists.
     source: beat?.source || null,
     last: beat ? { generated: beat.generated, delivered: beat.delivered, failed: beat.failed, ms: beat.ms } : null,
-    leadMinutes: Math.round(LEAD_MS / 60000),
+    planAheadHours: Math.round(PLAN_AHEAD_MS / 360000) / 10,
     cron,
     overdue: Number(p.overdue || 0),
     upcoming: Number(p.upcoming || 0),
     retrying: Number(p.retrying || 0),
     blocked: Number(p.blocked || 0),
     awaitingRender: Number(p.awaiting_render || 0),
-    // The render workflow runs every 10 minutes and a render itself takes a
-    // few, so "nothing for 45 minutes" means it has genuinely stopped rather
-    // than that it is busy.
+    // The render workflow runs every six hours, so only a gap past that
+    // means it has genuinely stopped rather than that it is between runs.
     renderWorker: {
       lastSeenAt: renderBeat?.at || null,
       ageMs: renderAgeMs,
       neverRan: !renderBeat,
-      healthy: renderAgeMs !== null && renderAgeMs < 45 * 60000,
+      healthy: renderAgeMs !== null && renderAgeMs < 7 * 3600000,
       source: renderBeat?.source || null,
     },
   });

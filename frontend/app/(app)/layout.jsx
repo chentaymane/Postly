@@ -6,6 +6,7 @@ import { PostlyLogo } from '../../components/BrandIcons';
 import { SidebarNav, DrawerNav } from '../../components/NavLinks';
 import ThemeToggle from '../../components/ThemeToggle';
 import { isAdminUser } from '../../lib/admin';
+import '../schedule.css';
 
 // Chrome for the signed-in application pages.
 export default async function AppLayout({ children }) {
@@ -36,7 +37,7 @@ export default async function AppLayout({ children }) {
         WHERE user_id = $1 AND status IN ('draft','failed','unconfirmed')`,
       [Number(user.id)]
     );
-    badges = { '/review': rows[0]?.n || 0 };
+    badges = { '/schedule': rows[0]?.n || 0 };
   }
 
   // Decided on the server; the link is a convenience, not the gate.
@@ -77,6 +78,9 @@ export default async function AppLayout({ children }) {
         </nav>
 
         <div className="sidebar-foot">
+          {/* Named, not just an icon: an unlabelled moon in the corner is a
+              control nobody finds. */}
+          <ThemeToggle labeled />
           <div className="user-chip">
             <span className="avatar" aria-hidden="true">{initial}</span>
             <span className="user-meta">
@@ -85,7 +89,6 @@ export default async function AppLayout({ children }) {
                 <button className="link-btn" type="submit">Sign out</button>
               </form>
             </span>
-            <ThemeToggle />
           </div>
         </div>
       </aside>

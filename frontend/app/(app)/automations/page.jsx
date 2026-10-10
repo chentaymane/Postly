@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { PlatformIcon, NavIcon } from '../../../components/BrandIcons';
+import Menu from '../../../components/Menu';
 
 const PLATFORM_COLORS = {
   pinterest: '#E60023', instagram: '#E4405F', facebook: '#1877F2',
@@ -182,6 +183,7 @@ function AutomationCard({ a, platforms, browserZone, onChanged }) {
   const [draft, setDraft] = useState(a);
   const [busy, setBusy] = useState(null);
   const [runResult, setRunResult] = useState(null);
+  const [rewrite, setRewrite] = useState(false);
 
   const connected = new Set(platforms.filter((p) => p.connected).map((p) => p.key));
   const times = Array.isArray(a.times) ? a.times : [];
@@ -192,7 +194,7 @@ function AutomationCard({ a, platforms, browserZone, onChanged }) {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    return res.ok;
+    return res.ok ? res.json().catch(() => ({})) : null;
   }
 
   async function toggle() {
@@ -204,19 +206,28 @@ function AutomationCard({ a, platforms, browserZone, onChanged }) {
 
   async function save() {
     setBusy('save');
-    await patch({
+    const json = await patch({
       name: draft.name, post_type: draft.post_type, format: draft.format,
       platforms: draft.platforms, times: draft.times, timezone: draft.timezone,
       theme: draft.theme ?? '', tone: draft.tone ?? '', approval: draft.approval,
       custom_prompt: draft.custom_prompt ?? '',
       catch_up_hours: draft.catch_up_hours,
+      rewrite_upcoming: rewrite,
     });
     setBusy(null);
     setOpen(false);
-    onChanged('Automation updated');
+    setRewrite(false);
+    const dropped = json?.dropped || 0;
+    onChanged(dropped > 0
+      ? `Saved — ${dropped} upcoming post${dropped === 1 ? '' : 's'} will be written again`
+      : 'Automation saved');
   }
 
+  // Publishes straight away, so it says so first: this is the one action on
+  // the page that puts something public on the user's accounts immediately.
   async function runNow() {
+    const where = (a.platforms || []).join(' and ') || 'its platforms';
+    if (!confirm(`Write and publish one post to ${where} right now? Your scheduled posts still go out as planned.`)) return;
     setBusy('run'); setRunResult(null);
     const res = await fetch(`/api/automations/${a.id}/run`, { method: 'POST' });
     setRunResult(await res.json());
@@ -225,7 +236,7 @@ function AutomationCard({ a, platforms, browserZone, onChanged }) {
   }
 
   async function remove() {
-    if (!confirm(`Delete "${a.name}"? Posts it already made are kept.`)) return;
+    if (!confirm(`Delete "${a.name}"? Its upcoming posts are removed too; everything already published stays.`)) return;
     setBusy('delete');
     await fetch(`/api/automations/${a.id}`, { method: 'DELETE' });
     onChanged('Automation deleted');
@@ -347,43 +358,41 @@ function AutomationCard({ a, platforms, browserZone, onChanged }) {
         )}
 
         <div className="auto-stats">
-          <span><strong>{a.posts_live}</strong> live</span>
-          <span><strong>{a.posts_made}</strong> made</span>
-          {a.posts_failed > 0 && <span className="err-text"><strong>{a.posts_failed}</strong> failed</span>}
-          <span><strong>{a.run_count}</strong> runs</span>
-          {a.enabled && a.next_run_at && (
+          {a.enabled && a.next_run_at ? (
             <span>
-              Next{' '}
-              <strong>
-                {new Date(a.next_run_at).toLocaleString([], {
-                  hour12: false, weekday: 'short', hour: '2-digit', minute: '2-digit',
-                })}
-              </strong>{' '}
-              <span className="empty">({relative(a.next_run_at)})</span>
+              Next <strong>{new Date(a.next_run_at).toLocaleString('en-GB', {
+                hour12: false, weekday: 'short', hour: '2-digit', minute: '2-digit',
+              })}</strong> <span className="empty">({relative(a.next_run_at)})</span>
+            </span>
+          ) : (
+            <span>{a.enabled ? 'Nothing scheduled' : 'Paused — nothing goes out'}</span>
+          )}
+          <span><strong>{a.posts_live}</strong> published</span>
+          {a.posts_failed > 0 && <span className="err-text"><strong>{a.posts_failed}</strong> failed</span>}
+          {a.last_run_at && (
+            <span title={a.last_run_detail || ''}>
+              Last run {relative(a.last_run_at)} ·{' '}
+              <span className={
+                a.last_run_status === 'ok' ? 'ok-text'
+                  : a.last_run_status === 'failed' ? 'err-text'
+                    : a.last_run_status === 'partial' ? 'warn-text' : ''
+              }>
+                {a.last_run_status === 'ok' ? 'worked' : a.last_run_status}
+              </span>
             </span>
           )}
         </div>
 
-        {a.last_run_at && (
-          <p className="auto-sub" style={{ margin: 0 }}>
-            Last run {relative(a.last_run_at)} —{' '}
-            <span className={
-              a.last_run_status === 'ok' ? 'ok-text'
-                : a.last_run_status === 'failed' ? 'err-text'
-                  : a.last_run_status === 'partial' ? 'warn-text' : ''
-            }>
-              {a.last_run_status}
-            </span>
-            {a.last_run_detail && <span className="empty"> · {a.last_run_detail}</span>}
-          </p>
+        {a.last_run_status === 'failed' && a.last_run_detail && (
+          <p className="auto-sub err-text" style={{ margin: 0 }}>{a.last_run_detail}</p>
         )}
 
         {runResult && (
           <div className={`notice ${runResult.ok ? 'ok' : 'err'}`}>
             <span className="notice-body">
               {runResult.ok
-                ? <>Test run: {runResult.detail}. <a href="/review">See it in Review →</a></>
-                : <>Run failed: {runResult.detail || runResult.error}</>}
+                ? <>Posted: {runResult.detail}. <a href="/schedule?tab=published">See it →</a></>
+                : <>That did not work: {runResult.detail || runResult.error}</>}
             </span>
           </div>
         )}
@@ -391,20 +400,19 @@ function AutomationCard({ a, platforms, browserZone, onChanged }) {
         <div className="auto-actions">
           <button className="btn btn-outline btn-sm" onClick={() => { setDraft(a); setOpen(!open); }}
                   aria-expanded={open}>
-            {open ? 'Close' : 'Edit'}
+            <NavIcon name="edit" size={15} /> {open ? 'Close settings' : 'Settings'}
           </button>
-          <button className="btn btn-outline btn-sm" onClick={runNow} disabled={!!busy}
-                  title="Generates one post per platform right now. Today's scheduled posts still happen.">
-            {busy === 'run' ? <><span className="spinner" /> Running…</> : 'Test run'}
-          </button>
-          <button className="btn btn-ghost btn-sm" onClick={() => setShowRuns(!showRuns)}
-                  aria-expanded={showRuns}>
-            {showRuns ? 'Hide history' : 'History'}
-          </button>
-          <button className="btn btn-ghost btn-sm danger" onClick={remove} disabled={!!busy}
-                  style={{ marginLeft: 'auto' }}>
-            Delete
-          </button>
+          <a className="btn btn-ghost btn-sm" href={`/schedule?automation=${a.id}`}>
+            <NavIcon name="calendar" size={15} /> Its posts
+          </a>
+          {busy === 'run' && <span className="auto-sub"><span className="spinner" /> Writing and posting…</span>}
+          <span style={{ marginLeft: 'auto' }}>
+            <Menu items={[
+              { label: 'Post one now', onClick: runNow, disabled: !!busy },
+              { label: showRuns ? 'Hide run history' : 'Run history', onClick: () => setShowRuns(!showRuns) },
+              { label: 'Delete automation', onClick: remove, danger: true, disabled: !!busy },
+            ]} />
+          </span>
         </div>
 
         {showRuns && (
@@ -535,7 +543,7 @@ function AutomationCard({ a, platforms, browserZone, onChanged }) {
             <label htmlFor={`ap-${a.id}`}>After generating</label>
             <select id={`ap-${a.id}`} value={draft.approval}
                     onChange={(e) => setDraft({ ...draft, approval: e.target.value })}>
-              <option value="review">Wait for my approval (draft in Review)</option>
+              <option value="review">Wait for my approval (under Schedule → Needs you)</option>
               <option value="auto">Publish at the scheduled time</option>
             </select>
           </div>
@@ -570,6 +578,14 @@ function AutomationCard({ a, platforms, browserZone, onChanged }) {
             </select>
           </div>
 
+          <label className="check-line">
+            <input type="checkbox" checked={rewrite} onChange={(e) => setRewrite(e.target.checked)} />
+            <span>
+              Also re-write the posts already written for the next day, so these settings
+              apply from the very next post. Posts you skipped stay skipped.
+            </span>
+          </label>
+
           <div className="auto-actions">
             <button className="btn btn-accent" onClick={save} disabled={busy === 'save'}>
               {busy === 'save' ? <><span className="spinner" /> Saving…</> : 'Save changes'}
@@ -588,75 +604,66 @@ function AutomationCard({ a, platforms, browserZone, onChanged }) {
 // scheduler last ran.
 // ---------------------------------------------------------------------------
 function SchedulerHealth({ health, onKick, kicking }) {
+  const [details, setDetails] = useState(false);
   if (!health) return null;
 
-  if (health.neverRan) {
-    return (
-      <div className="health down">
-        <span className="health-dot" />
-        <span className="health-text">
-          <strong>The scheduler has not run yet.</strong> Posts are generated and published by a
-          tick that should arrive every few minutes.
-        </span>
-        <button className="btn btn-outline btn-sm" onClick={onKick} disabled={kicking}>
-          {kicking ? <span className="spinner" /> : 'Run it now'}
-        </button>
-      </div>
-    );
-  }
-
-  const mins = Math.round((health.ageMs || 0) / 60000);
-
-  // A tab-driven tick is not a scheduler. It looks identical in every other
-  // respect, so the one case that must never read as healthy is the one where
-  // closing this page stops the posting.
-  if (health.healthy && health.source === 'browser-tab') {
-    return (
-      <div className="health down">
-        <span className="health-dot" />
-        <span className="health-text">
-          <strong>Only this browser tab is driving the scheduler.</strong> Posts stop going out
-          when you close it. Enable the <code>scheduler</code> GitHub Action so it runs without you.
-        </span>
-        <button className="btn btn-outline btn-sm" onClick={onKick} disabled={kicking}>
-          {kicking ? <span className="spinner" /> : 'Run now'}
-        </button>
-      </div>
-    );
-  }
-
   const SOURCE_LABEL = {
+    'cron-job-org': 'cron-job.org',
     'github-actions': 'GitHub Actions',
     'vercel-cron': 'the Vercel cron',
     'external-cron': 'your cron',
     'external': 'an external scheduler',
-    'browser-tab': 'a browser tab',
   };
+  const mins = Math.round((health.ageMs || 0) / 60000);
+  const ago = mins < 1 ? 'just now' : mins < 120 ? `${mins} min ago` : `${Math.round(mins / 60)} h ago`;
+  const down = health.neverRan || !health.healthy;
 
   return (
-    <div className={`health ${health.healthy ? 'up' : 'down'}`}>
+    <div className={`health ${down ? 'down' : 'up'}`}>
       <span className="health-dot" />
       <span className="health-text">
-        {health.healthy ? (
+        {health.neverRan ? (
+          <><strong>The scheduler has never run</strong>, so nothing is written or posted yet.</>
+        ) : down ? (
           <>
-            Scheduler ran <strong>{mins < 1 ? 'just now' : `${mins} min ago`}</strong>
-            {health.source && <> via {SOURCE_LABEL[health.source] || health.source}</>}
-            {health.upcoming > 0 && <> · <strong>{health.upcoming}</strong> post{health.upcoming === 1 ? '' : 's'} queued</>}
-            {health.retrying > 0 && <> · <strong>{health.retrying}</strong> retrying</>}
-            {health.blocked > 0 && <> · <strong className="err-text">{health.blocked}</strong> need attention</>}
+            <strong>
+              The scheduler missed {health.missedAt
+                ? new Date(health.missedAt).toLocaleString('en-GB', { weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false })
+                : 'its last run'}.
+            </strong>{' '}
+            Nothing goes out while it is stopped. Check the cron job that calls Postly
+            {health.source ? ` (${SOURCE_LABEL[health.source] || health.source})` : ''}.
           </>
         ) : (
           <>
-            <strong>Last tick was {mins} minutes ago.</strong> Scheduled posts go out late while
-            this is behind. Missed slots are still caught up, but if the gap keeps growing check
-            that the <code>scheduler</code> GitHub Action is enabled and its{' '}
-            <code>CRON_SECRET</code> matches.
+            <strong>Scheduler OK</strong> — last ran {ago}
+            {health.source && <> via {SOURCE_LABEL[health.source] || health.source}</>}
+            {health.upcoming > 0 && <> · {health.upcoming} post{health.upcoming === 1 ? '' : 's'} ready</>}
+            {health.retrying > 0 && <> · {health.retrying} retrying</>}
           </>
         )}
+        {details && (
+          <span className="health-details">
+            Posts are written {health.planAheadHours || 24} hours ahead and sent at their minute,
+            so the scheduler only has to run at your posting hours.
+            {health.cron && (
+              <>
+                {' '}Set your cron to <code>{health.cron.expression}</code> — {health.cron.ticksPerDay} runs
+                a day instead of {health.cron.ticksPerDayIfPolling}, which keeps the free database
+                allowance from running out.
+              </>
+            )}
+          </span>
+        )}
       </span>
-      <button className="btn btn-outline btn-sm" onClick={onKick} disabled={kicking}>
-        {kicking ? <span className="spinner" /> : 'Run now'}
-      </button>
+      <span className="health-actions">
+        <button className="link-btn" onClick={() => setDetails(!details)} aria-expanded={details}>
+          {details ? 'Less' : 'How it runs'}
+        </button>
+        <button className="btn btn-outline btn-sm" onClick={onKick} disabled={kicking}>
+          {kicking ? <span className="spinner" /> : 'Run now'}
+        </button>
+      </span>
     </div>
   );
 }
@@ -771,22 +778,6 @@ export default function AutomationsPage() {
 
       {!loading && <SchedulerHealth health={health} onKick={kick} kicking={kicking} />}
 
-      {/* Polling every five minutes to serve a handful of moments a day is what
-          exhausted the database quota. This is the expression that covers the
-          same times for a fraction of the wake-ups. */}
-      {!loading && health?.cron && (
-        <div className="notice info">
-          <span className="notice-icon"><NavIcon name="clock" size={16} /></span>
-          <span className="notice-body">
-            Set your scheduler to{' '}
-            <code>{health.cron.expression}</code>{' '}
-            — {health.cron.ticksPerDay} runs a day instead of{' '}
-            {health.cron.ticksPerDayIfPolling}, covering exactly your posting hours.
-            Polling around the clock keeps a serverless database awake permanently
-            and burns its free allowance in about a week.
-          </span>
-        </div>
-      )}
       {!loading && <RenderWorkerHealth health={health} />}
 
       {loading ? (

@@ -19,7 +19,7 @@ export async function GET() {
               WHERE q.product_id = p.id)                            AS clicks
        FROM products p
       WHERE p.user_id = $1
-      ORDER BY p.enabled DESC, p.times_used ASC, p.id`,
+      ORDER BY p.enabled DESC, p.times_used ASC, p.last_used_at ASC NULLS FIRST, p.id`,
     [userId]
   );
   return NextResponse.json({ products: rows });

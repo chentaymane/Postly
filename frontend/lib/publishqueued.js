@@ -122,6 +122,46 @@ async function recordFailure(post, error) {
   };
 }
 
+// Parks a finished post here until its minute; the scheduler tick that runs at
+// that minute publishes it.
+//
+// Automation posts are always held here rather than handed to an aggregator
+// with a time. Once an aggregator holds a post it can only be cancelled, not
+// changed, and the whole point of writing posts ahead is that they can still be
+// read, edited and skipped right up to the moment they go out.
+export async function holdForDelivery(postId, scheduledAt) {
+  await query(
+    `UPDATE queued_posts
+        SET status = 'scheduled', scheduled_at = $2, delivery = 'postly',
+            error_message = NULL, failure_kind = NULL, next_attempt_at = NULL,
+            updated_at = now()
+      WHERE id = $1`,
+    [postId, scheduledAt]
+  );
+}
+
+// Withdraws a post an aggregator is holding for a future time. Returns a short
+// description of what happened upstream, for the response.
+export async function cancelUpstream(post) {
+  if (post.delivery === 'postly' || !post.published_post_id) return 'held here — nothing to cancel';
+  const conn = await connectionFor(post.user_id, post.platform);
+  const kind = conn?.provider === 'zernio' || conn?.provider === 'socialapi' ? conn.provider : null;
+  if (!kind) return 'skipped';
+  try {
+    // Through the key the account was connected with, as publishing does: an
+    // aggregator only recognises a post under the key that created it.
+    const secret = await secretForCredential(conn.credential_id, kind, post.user_id);
+    const { deletePost } = kind === 'zernio'
+      ? await import('./zernio.js')
+      : await import('./socialapi.js');
+    await withUserKeys(post.user_id, () => deletePost(post.published_post_id),
+      secret ? { [kind]: secret } : {});
+    return 'cancelled';
+  } catch (e) {
+    return `cancel failed upstream: ${e.message}`;
+  }
+}
+
 // Publishes (or schedules) one queued post and records the outcome.
 // Returns { ok, status, post_id, error, unconfirmed, willRetry }.
 export async function publishQueuedPost(post, { scheduledAt = null } = {}) {

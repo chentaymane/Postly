@@ -47,8 +47,9 @@ orchestrator, deployable free to Vercel + Neon.
    ├── /api/auth/*  ·  /api/signup             sign up / sign in (Auth.js)
    ├── /api/oauth/<platform>/{start,callback}   one-click account connect
    ├── /api/connections                        list / disconnect / pick board
-   ├── /api/generate ──► copy + artwork ──► review queue (drafts)
-   ├── /api/queue/<id>/publish ──► publish or schedule, then verify
+   ├── /api/generate ──► copy + artwork ──► drafts ("Needs you")
+   ├── /api/schedule           every upcoming post, written or not
+   ├── /api/queue/<id>/{publish,approve,skip,regenerate} ──► act on one post
    ├── /api/render/jobs        ◄── the local video worker polls here
    └── /api/history                            past posts + errors
         │
@@ -168,13 +169,22 @@ Everything is driven by one endpoint that should run every few minutes:
 GET|POST /api/cron/autopilot        Authorization: Bearer $CRON_SECRET
 ```
 
-Each tick does five things, all of them safe to repeat:
+Each tick does six things, all of them safe to repeat:
 
 1. **Sweeps** slot claims abandoned by a run that was killed mid-generation
-2. **Generates** posts whose slots are due, catching up ones that were missed
-3. **Delivers** posts Postly is holding for a specific minute
+2. **Expires** held posts whose minute passed longer ago than the automation's
+   catch-up window, so a scheduler that was down for a day does not dump the backlog
+3. **Delivers** posts that are due — first, so writing tomorrow never delays today
 4. **Retries** transient failures on a growing backoff (~2m, 8m, 25m, 1h, 3h)
-5. **Reconciles** what the platforms actually did with what we assumed
+5. **Writes** the posts for every slot in the next 24 hours that has none yet
+6. **Reconciles** what the platforms actually did with what we assumed
+
+Posts are written **a day ahead** and held by Postly until their minute
+(`POSTLY_PLAN_AHEAD_HOURS`, default 24). That is what makes the **Schedule**
+page possible: every upcoming post already exists, so it can be read, edited,
+re-written, moved to another product, skipped or posted early — right up to the
+moment it goes out. Slots further out show as *not written yet*, and can be
+skipped (or written early) from there too.
 
 Two things make it safe to run often, late, twice, or by hand:
 
@@ -211,19 +221,19 @@ The secret is accepted as an `Authorization: Bearer` header, an `x-cron-secret`
 header, or a `?key=` query parameter, so any scheduler can drive it. Prefer a
 header: query strings end up in logs.
 
-**Automations → the health bar** shows when the tick last ran. If that number
-grows past a few minutes, posts are going out late and the cron is the reason.
+**Automations → the status line** says whether the scheduler served the most
+recent posting minute. Because posts are written ahead, the scheduler only has
+to run *at* your posting hours — the app shows the cron expression that does
+exactly that (a few dozen runs a day instead of 288, which matters on a
+serverless database's free allowance).
 
 ### Delivery: who holds the post
 
-| Connection | Who waits for the minute |
-|------------|--------------------------|
-| Aggregator (Zernio, SocialAPI) | The aggregator — handed the post with its time |
-| Direct OAuth (Pinterest, Meta) | **Postly** — the post is held here and published by the tick |
-
-Direct platform APIs publish on receipt and cannot be given a future time. Those
-posts are simply held, which is why an automation on a directly connected
-account schedules normally instead of failing.
+Automation posts are **always held by Postly** and published by the tick at
+their minute, whatever the connection — a post handed to an aggregator with a
+time can only be cancelled, not changed. A post you schedule by hand from a
+draft still goes to the aggregator when the connection is one, so it lands on
+the minute even if no tick runs then.
 
 ## Video posts
 
@@ -238,9 +248,9 @@ cd worker && pip install -r requirements.txt
 python render_worker.py
 ```
 
-Pick **Narrated video** on the Create page and the draft appears under Review
-as *Rendering…*; once the worker returns the MP4 it becomes a playable draft
-you can approve, schedule or delete like any other post.
+Pick **Narrated video** on the Create page and the draft appears under
+Schedule → *Needs you* as *Rendering video*; once the worker returns the MP4 it
+becomes a playable draft you can approve, schedule or skip like any other post.
 
 Without the worker running, the other two formats work exactly as before —
 video drafts simply sit and wait.
@@ -324,10 +334,10 @@ The part most likely to surprise you, so it is worth stating plainly.
 
 - Posting times are **local wall-clock** in each automation's own IANA timezone,
   so 09:00 stays 09:00 across daylight saving.
-- A **scheduler tick** runs every few minutes. It generates the posts whose
-  slots are due (catching up ones that were missed), publishes posts held for a
-  specific minute, retries transient failures on a backoff, and reads back what
-  the platforms actually did.
+- A **scheduler tick** publishes the posts that are due, retries transient
+  failures on a backoff, writes the posts for the next 24 hours of slots, and
+  reads back what the platforms actually did. Posts exist a day before they go
+  out, so you can change or skip them on the **Schedule** page.
 - Every unit of work is guarded by a slot key or a status transition, so running
   the tick twice, late, or by hand is safe.
 

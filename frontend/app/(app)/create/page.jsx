@@ -97,7 +97,10 @@ export default function CreatePage() {
     const drafts = json.drafts || [];
     const failures = drafts.filter((d) => !d.ok);
     if (drafts.length > 0 && failures.length === 0) {
-      router.push('/review');
+      // Drafts wait under "Needs you", opened on the first one so the next
+      // step — read it, approve it — is already on screen.
+      const first = drafts.find((d) => d.draft?.id)?.draft.id;
+      router.push(`/schedule?tab=review${first ? `&post=${first}` : ''}`);
       return;
     }
     setResults(
@@ -115,8 +118,11 @@ export default function CreatePage() {
   return (
     <>
       <div className="page-head">
-        <h1>Create Post</h1>
-        <p>Describe your product or theme — Postly writes the copy, generates the image, and publishes it.</p>
+        <h1>Create a post</h1>
+        <p>
+          Describe it and Postly writes the copy and makes the picture. Nothing goes out yet:
+          the draft waits in Schedule for you to read and approve.
+        </p>
       </div>
 
       <div className="create-grid">

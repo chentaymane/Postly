@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server';
 import { query } from '../../../../lib/db';
 import { currentUserId } from '../../../../lib/auth';
-import { POST_TYPES, FORMATS, APPROVALS } from '../../../../lib/automations';
+import { POST_TYPES, FORMATS, APPROVALS, dropUpcomingPosts } from '../../../../lib/automations';
 import { nextRunAt, normaliseTimes, isValidTimezone, timezoneLabel } from '../../../../lib/schedule';
+import { kickScheduler } from '../../../../lib/scheduler';
 
 export const runtime = 'nodejs';
+// The background tick kicked after a change runs inside this request's budget.
+export const maxDuration = 300;
 
 // Partial update: only the fields present in the body change.
 export async function PATCH(request, { params }) {
@@ -26,6 +29,8 @@ export async function PATCH(request, { params }) {
   // the new schedule starts cleanly from this moment.
   const scheduleChanged =
     (times && times.length > 0) || (b.timezone !== undefined) || (b.catch_up_hours !== undefined);
+  const platformsChanged = Array.isArray(b.platforms);
+  const rewrite = b.rewrite_upcoming === true;
 
   const { rows } = await query(
     `UPDATE automations SET
@@ -41,7 +46,11 @@ export async function PATCH(request, { params }) {
        approval    = COALESCE($14, approval),
        catch_up_hours   = COALESCE($15, catch_up_hours),
        custom_prompt    = CASE WHEN $17::boolean THEN $18 ELSE custom_prompt END,
-       scheduled_through = CASE WHEN $16::boolean THEN now() ELSE scheduled_through END,
+       -- Resuming starts from now as well: posts for the hours it spent
+       -- paused are not owed, and catching them up would read as a burst.
+       scheduled_through = CASE
+         WHEN $16::boolean OR ($4::boolean IS TRUE AND enabled = false) THEN now()
+         ELSE scheduled_through END,
        updated_at  = now()
      WHERE id = $1 AND user_id = $2
      RETURNING *`,
@@ -58,7 +67,7 @@ export async function PATCH(request, { params }) {
       b.tone !== undefined, b.tone !== undefined ? String(b.tone).trim().slice(0, 100) || null : null,
       APPROVALS.includes(b.approval) ? b.approval : null,
       b.catch_up_hours !== undefined ? Math.max(0, Math.min(48, Number(b.catch_up_hours) || 6)) : null,
-      scheduleChanged,
+      scheduleChanged || rewrite,
       b.custom_prompt !== undefined,
       b.custom_prompt !== undefined
         ? String(b.custom_prompt).trim().slice(0, 4000) || null
@@ -68,18 +77,41 @@ export async function PATCH(request, { params }) {
   if (rows.length === 0) return NextResponse.json({ error: 'automation not found' }, { status: 404 });
 
   const a = rows[0];
+
+  // Posts already written for a schedule that no longer exists would still go
+  // out at the old times; see dropUpcomingPosts.
+  const dropped = scheduleChanged || platformsChanged || rewrite
+    ? await dropUpcomingPosts(a, { rewrite })
+    : 0;
+
+  // Write the new schedule's posts now rather than at the next posting hour,
+  // so the Schedule page reflects the change straight away.
+  if (a.enabled && (scheduleChanged || platformsChanged || rewrite || b.enabled === true)) {
+    kickScheduler('automation-saved');
+  }
+
   return NextResponse.json({
     automation: {
       ...a,
       next_run_at: a.enabled ? nextRunAt(a) : null,
       tz_label: timezoneLabel(a.timezone),
     },
+    dropped,
   });
 }
 
 export async function DELETE(request, { params }) {
   const userId = await currentUserId();
   if (!userId) return NextResponse.json({ error: 'not authenticated' }, { status: 401 });
+  // Its upcoming posts go with it. The foreign key only nulls the reference,
+  // which would turn a deleted automation's written posts into orphans that
+  // still go out on schedule.
+  await query(
+    `DELETE FROM queued_posts
+      WHERE automation_id = $1 AND user_id = $2 AND published_post_id IS NULL
+        AND status IN ('generating','draft','scheduled','skipped')`,
+    [params.id, userId]
+  );
   const res = await query('DELETE FROM automations WHERE id = $1 AND user_id = $2', [params.id, userId]);
   if (res.rowCount === 0) return NextResponse.json({ error: 'not found' }, { status: 404 });
   return NextResponse.json({ ok: true });

@@ -31,13 +31,27 @@ export async function POST(request, { params }) {
     // A past/imminent time just means "publish now".
   }
 
-  const { rows } = await query(
+  let { rows } = await query(
     `SELECT * FROM queued_posts
       WHERE id = $1 AND user_id = $2 AND status IN ('draft','failed','unconfirmed')`,
     [params.id, userId]
   );
+
+  // "Post now" on a post held for later. It is claimed the way the scheduler
+  // claims one, so a tick arriving at the same moment cannot send it too.
+  if (rows.length === 0 && !scheduledAt) {
+    ({ rows } = await query(
+      `UPDATE queued_posts SET status = 'publishing', updated_at = now()
+        WHERE id = $1 AND user_id = $2 AND status = 'scheduled'
+          AND delivery = 'postly' AND published_post_id IS NULL
+          AND (format <> 'video' OR video_url IS NOT NULL)
+        RETURNING *`,
+      [params.id, userId]
+    ));
+  }
+
   const post = rows[0];
-  if (!post) return NextResponse.json({ error: 'draft not found (or already published)' }, { status: 404 });
+  if (!post) return NextResponse.json({ error: 'post not found (or already published)' }, { status: 404 });
 
   if (post.format === 'video' && !post.video_url) {
     return NextResponse.json({ error: 'the video has not finished rendering yet' }, { status: 409 });

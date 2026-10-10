@@ -6,28 +6,47 @@
 // arrived lost the day silently, direct connections could not be handed a time
 // at all, and a failure was final.
 //
-// This runs often and does five small things instead, each of them safe to
+// This runs often and does six small things instead, each of them safe to
 // repeat:
 //
 //   1. sweep  — release slot claims abandoned by a killed run
-//   2. generate — make the posts whose slots are due, catching up missed ones
+//   2. expire — retire held posts whose moment passed while nothing ran
 //   3. deliver — publish posts held here for a specific minute
 //   4. retry  — re-attempt transient failures on a backoff
-//   5. reconcile — read back what the platforms actually did
+//   5. generate — write the posts for the next day of slots, ahead of time
+//   6. reconcile — read back what the platforms actually did
+//
+// Delivery comes before generation: a post due this minute must never wait
+// behind the writing of tomorrow's.
 //
 // Every step is bounded by a wall-clock budget so the tick always returns
 // rather than being killed mid-flight, and anything it does not finish is
 // simply picked up by the next one.
 
+import { waitUntil } from '@vercel/functions';
 import { query } from './db.js';
 import { runAutomation, dueSlots } from './automations.js';
+import { slotsBetween } from './schedule.js';
 import { publishQueuedPost } from './publishqueued.js';
 import { reconcileUser } from './reconcile.js';
 import { nextAttemptAt, MAX_ATTEMPTS } from './retry.js';
 
-// Slots are generated slightly ahead of time so the post is ready *at* its
-// minute rather than a minute after it: copy plus artwork is not instant.
-export const LEAD_MS = 6 * 60000;
+// How far ahead posts are written.
+//
+// They used to be written six minutes before their slot, which kept them
+// punctual but meant a scheduled post did not exist until it was already going
+// out: there was nothing to look at, nothing to correct and nothing to skip.
+// Written a day ahead and held here until their minute, every upcoming post
+// can be read, edited, re-rolled or skipped — and a slow generation can never
+// make one late.
+const PLAN_AHEAD_HOURS = Math.min(72, Math.max(0.1, Number(process.env.POSTLY_PLAN_AHEAD_HOURS) || 24));
+export const PLAN_AHEAD_MS = Math.round(PLAN_AHEAD_HOURS * 3600000);
+
+// A post whose minute passed while no tick ran still goes out late inside the
+// automation's catch-up window. This is the floor for automations set to "skip
+// it": without it a tick landing ten seconds after the minute would retire the
+// post it had come to send.
+const MIN_GRACE_MINUTES = 30;
 
 // A claim older than this belongs to a run that was killed. Generation itself
 // is capped well below this, so nothing live is ever stolen.
@@ -115,7 +134,7 @@ async function sweepStaleClaims() {
   return (generating || 0) + restored;
 }
 
-// 2. Generate everything due.
+// 5. Write everything due within the plan-ahead window.
 //
 // Automations are taken least-recently-run first. The old cron walked them in
 // id order against a shared budget, so a busy automation near the front could
@@ -135,7 +154,7 @@ async function generateDue({ now, deadline, dryRun }) {
     // publishing anything — the only safe way to check a live automation's
     // wiring against real connected accounts.
     if (dryRun) {
-      const slots = dueSlots(automation, { now, leadMs: LEAD_MS });
+      const slots = dueSlots(automation, { now, leadMs: PLAN_AHEAD_MS });
       runs.push({
         id: automation.id,
         name: automation.name,
@@ -154,8 +173,8 @@ async function generateDue({ now, deadline, dryRun }) {
       continue;
     }
 
-    const slots = dueSlots(automation, { now, leadMs: LEAD_MS });
-    const windowEnd = new Date(now.getTime() + LEAD_MS);
+    const slots = dueSlots(automation, { now, leadMs: PLAN_AHEAD_MS });
+    const windowEnd = new Date(now.getTime() + PLAN_AHEAD_MS);
 
     if (slots.length === 0) {
       // Nothing due: move the watermark up so the next tick does not rescan
@@ -260,11 +279,17 @@ async function deliverDue({ now, deadline }) {
     // A video whose render never finished cannot go out. Excluding it here
     // rather than skipping it in the loop means it is never claimed, so it
     // cannot be left parked in 'publishing' waiting for a sweep.
+    //
+    // Posts are written a day ahead, so pausing an automation has to stop the
+    // ones it already wrote as well as the ones it has not: "paused" that
+    // still published tomorrow's posts would not be a pause at all.
     sql: `status = 'scheduled'
             AND delivery = 'postly'
             AND published_post_id IS NULL
             AND scheduled_at <= $1
-            AND (format <> 'video' OR video_url IS NOT NULL)`,
+            AND (format <> 'video' OR video_url IS NOT NULL)
+            AND (automation_id IS NULL
+                 OR automation_id IN (SELECT id FROM automations WHERE enabled))`,
     order: 'scheduled_at',
     claimStatus: CLAIM_STATUS.scheduled,
   };
@@ -292,6 +317,36 @@ async function deliverDue({ now, deadline }) {
     result.ok ? published++ : failed++;
   }
   return { attempted, published, failed };
+}
+
+// 2. Retire held automation posts whose moment is too far gone.
+//
+// Writing a day ahead moved the catch-up rule from generation to delivery. A
+// slot older than the automation's catch-up window used to simply never be
+// written; now the post exists, so it has to be retired explicitly — otherwise
+// a scheduler that was down for a day, or an automation resumed after a week,
+// would publish the whole backlog in one burst.
+//
+// Retired rather than deleted: the slot key stays taken, so the post is not
+// written again, and the Schedule page can say what happened to it.
+async function expireMissed({ now }) {
+  const { rowCount } = await query(
+    `UPDATE queued_posts q
+        SET status = 'skipped',
+            error_message = CASE WHEN a.enabled
+              THEN 'Its time passed while the scheduler was not running, so it was not posted late.'
+              ELSE 'Skipped — the automation was paused at its time.' END,
+            updated_at = now()
+       FROM automations a
+      WHERE q.automation_id = a.id
+        AND q.status = 'scheduled'
+        AND q.delivery = 'postly'
+        AND q.published_post_id IS NULL
+        AND q.scheduled_at < $1::timestamptz
+              - (GREATEST($2, COALESCE(a.catch_up_hours, 6) * 60) || ' minutes')::interval`,
+    [now.toISOString(), MIN_GRACE_MINUTES]
+  );
+  return rowCount || 0;
 }
 
 // 4. Retry transient failures.
@@ -337,7 +392,7 @@ async function retryFailed({ now, deadline }) {
   return { attempted, recovered };
 }
 
-// 5. Ask the platforms what actually happened, for the users who have had
+// 6. Ask the platforms what actually happened, for the users who have had
 // activity recently. Without this the dashboard counts requests we sent rather
 // than posts that exist.
 async function reconcileRecent({ deadline }) {
@@ -365,12 +420,20 @@ async function reconcileRecent({ deadline }) {
 // Records that the tick ran, so the app can tell "nothing was due" apart from
 // "the cron stopped firing" — indistinguishable before, and the reason a
 // missed day looked like an automation problem.
+//
+// Ticks the app starts itself - after a settings change, or from a "Run now"
+// button - are recorded apart. They prove nothing about whether the real
+// scheduler is alive, and counting them would paint a dead cron green for
+// as long as someone kept saving settings.
+const APP_SOURCES = new Set(['automation-saved', 'browser-tab', 'app']);
+
 async function heartbeat(summary) {
+  const key = APP_SOURCES.has(summary.source) ? `${HEARTBEAT_KEY}:app` : HEARTBEAT_KEY;
   await query(
     `INSERT INTO system_state (key, value, updated_at)
      VALUES ($1, $2::jsonb, now())
      ON CONFLICT (key) DO UPDATE SET value = $2::jsonb, updated_at = now()`,
-    [HEARTBEAT_KEY, JSON.stringify(summary)]
+    [key, JSON.stringify(summary)]
   );
 }
 
@@ -380,6 +443,49 @@ export async function readHeartbeat() {
   ]);
   if (rows.length === 0) return null;
   return { ...rows[0].value, at: rows[0].updated_at };
+}
+
+// How long after a posting minute its tick may take to arrive before the
+// scheduler counts as behind.
+const TICK_GRACE_MS = 15 * 60000;
+
+// Whether the scheduler is keeping up, judged against when it was due to run
+// rather than against a fixed age.
+//
+// A fixed "under 25 minutes old" test only fitted a scheduler that polls
+// around the clock. Driven only at posting hours — the cheap setup the app
+// recommends — the last tick is routinely four hours old at 17:00, perfectly
+// healthy if nothing was due since 13:00, and the old test showed a red alarm
+// for most of every day. What matters is whether the most recent posting
+// minute was served.
+export async function schedulerStatus(now = new Date()) {
+  const beat = await readHeartbeat();
+  const lastTickAt = beat?.at ? new Date(beat.at) : null;
+
+  const { rows: automations } = await query(
+    'SELECT times, timezone FROM automations WHERE enabled = true'
+  );
+  let lastDue = null;
+  const until = new Date(now.getTime() - TICK_GRACE_MS);
+  const from = new Date(now.getTime() - 2 * 86400000);
+  for (const a of automations) {
+    const slots = slotsBetween(a, from, until);
+    const last = slots[slots.length - 1];
+    if (last && (!lastDue || last.at > lastDue)) lastDue = last.at;
+  }
+
+  const ageMs = lastTickAt ? now.getTime() - lastTickAt.getTime() : null;
+  const servedLastSlot = !lastDue || (lastTickAt && lastTickAt.getTime() >= lastDue.getTime() - 60000);
+  return {
+    beat,
+    lastTickAt: lastTickAt ? lastTickAt.toISOString() : null,
+    ageMs,
+    neverRan: !beat,
+    source: beat?.source || null,
+    healthy: Boolean(lastTickAt) && (ageMs < 25 * 60000 || Boolean(servedLastSlot)),
+    // The posting minute that went unserved, when there is one.
+    missedAt: lastTickAt && !servedLastSlot ? lastDue.toISOString() : null,
+  };
 }
 
 // One full tick. `budgetMs` must stay under the route's own maxDuration.
@@ -424,14 +530,18 @@ export async function runSchedulerTick({
 
   try {
     const swept = await sweepStaleClaims();
-    const automations = await generateDue({ now, deadline });
+    const expired = await expireMissed({ now });
+    // What is due goes out first. Generation can take the rest of the budget
+    // writing tomorrow, and a post due now must not wait behind that.
     const delivered = await deliverDue({ now, deadline });
     const retried = await retryFailed({ now, deadline });
+    const automations = await generateDue({ now, deadline });
     const reconciled = await reconcileRecent({ deadline });
 
     const summary = {
       source,
       swept,
+      expired,
       automations: automations.length,
       generated: automations.reduce((n, r) => n + (r.generated || 0), 0),
       delivered: delivered.published,
@@ -449,4 +559,17 @@ export async function runSchedulerTick({
     // lock every other driver out until the grace period expired.
     await releaseLease().catch(() => {});
   }
+}
+
+// Runs a tick in the background of the current request.
+//
+// After an automation changes, the posts for its new schedule should appear on
+// the Schedule page now, not at whatever posting hour the external cron next
+// fires. The lease keeps this from overlapping a real tick, and everything a
+// tick does is safe to repeat.
+export function kickScheduler(source = 'app') {
+  const run = runSchedulerTick({ source }).catch(() => {});
+  try {
+    waitUntil(run);
+  } catch { /* outside a request context the promise simply runs */ }
 }

@@ -10,7 +10,7 @@ import { query } from './db.js';
 import { generateContent } from './pipeline.js';
 import { withUserKeys } from './keycontext.js';
 import { platformSupportsFormat, formatMismatchReason } from './platforms.js';
-import { dueSlots, nextRunAt as slotNextRunAt, safeTimezone, normaliseTimes } from './schedule.js';
+import { dueSlots, nextRunAt as slotNextRunAt, safeTimezone, normaliseTimes, slotFor } from './schedule.js';
 import { requestRender } from './renderdispatch.js';
 import { pickProduct, markProductUsed } from './products.js';
 
@@ -51,17 +51,9 @@ async function connectionFor(userId, platform) {
   return rows[0] || null;
 }
 
-// Aggregators accept a future time and release the post themselves. A direct
-// platform connection cannot, so Postly holds the post and publishes it at the
-// minute instead. Before this distinction existed, every auto-approval
-// automation on a directly connected account failed with "scheduling is only
-// supported for one-click connections" and never posted at all.
-function deliveryFor(conn) {
-  return conn?.provider === 'zernio' || conn?.provider === 'socialapi' ? 'aggregator' : 'postly';
-}
-
-// Builds the generation input for one slot.
-function inputFor(automation, brand, { index, rotation, product }) {
+// Builds the generation input for one slot. Exported for regenerating a single
+// post, which must be written to the same brief as the rest of its automation.
+export function inputFor(automation, brand, { index, rotation, product }) {
   const postType =
     automation.post_type === 'mixed'
       ? TYPE_ROTATION[(index + rotation) % TYPE_ROTATION.length]
@@ -99,6 +91,45 @@ function inputFor(automation, brand, { index, rotation, product }) {
   };
 }
 
+// Removes upcoming posts an automation no longer wants.
+//
+// Posts are written a day ahead, so a schedule change leaves posts behind that
+// were written for the old one — a time that was removed, a platform that was
+// dropped, a timezone that moved every slot. Left alone they would still go
+// out at the old times. They have never left this database, so removing them
+// is safe; the scheduler then writes the new schedule's slots on its next tick.
+//
+// With `rewrite` set, every upcoming post that is not already out goes, so new
+// content settings apply from the very next slot rather than a day later.
+// Skips the user made are kept either way: "not this one" still stands.
+export async function dropUpcomingPosts(automation, { rewrite = false } = {}) {
+  const { rows } = await query(
+    `SELECT id, slot_key, platform, scheduled_at FROM queued_posts
+      WHERE automation_id = $1 AND published_post_id IS NULL
+        AND status IN ('draft','scheduled','failed')
+        AND scheduled_at > now()
+        AND slot_key IS NOT NULL AND slot_key NOT LIKE 'manual-%'`,
+    [automation.id]
+  );
+  const platforms = new Set((automation.platforms || []).filter(Boolean));
+  const doomed = rows.filter((r) => {
+    if (rewrite) return true;
+    const [key, platform] = String(r.slot_key).split('|');
+    const slot = slotFor(automation, key);
+    return !slot
+      || !platforms.has(platform || r.platform)
+      || Math.abs(slot.at.getTime() - new Date(r.scheduled_at).getTime()) > 60000;
+  });
+  if (doomed.length === 0) return 0;
+  const { rowCount } = await query(
+    `DELETE FROM queued_posts
+      WHERE id = ANY($1::bigint[]) AND published_post_id IS NULL
+        AND status IN ('draft','scheduled','failed')`,
+    [doomed.map((r) => r.id)]
+  );
+  return rowCount || 0;
+}
+
 // Claims a slot by inserting its (empty) row first.
 //
 // The claim happens *before* generation, not after: generating takes the better
@@ -129,8 +160,8 @@ async function releaseSlot(postId) {
 }
 
 // Generates one post for one slot and puts it wherever it belongs: a draft for
-// review, a scheduled post the aggregator will release, a post held here for
-// timed delivery, or published immediately when its slot has already passed.
+// review, a post held here until its minute, or published immediately when
+// its slot has already passed.
 async function runSlot(automation, { platform, slot, brand, index, rotation, product }) {
   // A platform that cannot take this format is checked before anything is
   // generated. TikTok takes video only, so an image automation with TikTok
@@ -192,7 +223,6 @@ async function runSlot(automation, { platform, slot, brand, index, rotation, pro
     };
   }
 
-  const delivery = deliveryFor(conn);
   // Videos wait for the render worker; "review" automations wait for the user.
   const mustWait = isVideo || automation.approval === 'review';
 
@@ -215,16 +245,16 @@ async function runSlot(automation, { platform, slot, brand, index, rotation, pro
       isVideo ? JSON.stringify(content.scenes) : null,
       isVideo ? 'pending' : null,
       input.destinationUrl || null,
-      mustWait ? null : delivery,
+      mustWait ? null : 'postly',
       product?.id || null,
     ]
   );
   const post = filled[0];
 
   if (mustWait) {
-    // A video generated six minutes before its slot has to start rendering
-    // immediately to have any chance of going out near its time; waiting for
-    // the renderer's own timer is what made scheduled videos hours late.
+    // Start rendering straight away rather than on the renderer's own timer:
+    // a video for a caught-up slot has no time to spare, and one for tomorrow
+    // is ready all the sooner for being looked at.
     if (isVideo) await requestRender();
     return {
       platform, slot: slot.key, ok: true,
@@ -232,30 +262,25 @@ async function runSlot(automation, { platform, slot, brand, index, rotation, pro
     };
   }
 
-  const { publishQueuedPost } = await import('./publishqueued.js');
+  const { publishQueuedPost, holdForDelivery } = await import('./publishqueued.js');
 
-  // A slot that has already passed (a missed tick being caught up) goes out
-  // now. Handing the aggregator a time in the past is either rejected or
-  // released immediately anyway, and the delay is already spent.
-  const scheduledAt = slot.late ? null : slot.at.toISOString();
-
-  // Held posts are not published here at all: the row simply waits with its
-  // time, and the tick that runs at that minute delivers it.
-  if (scheduledAt && delivery === 'postly') {
-    await query(
-      `UPDATE queued_posts SET status = 'scheduled', scheduled_at = $2, updated_at = now()
-        WHERE id = $1`,
-      [post.id, scheduledAt]
-    );
-    return { platform, slot: slot.key, ok: true, status: 'scheduled', at: scheduledAt };
+  // A future slot is held here, whatever the connection: the post waits with
+  // its time and stays editable, and the tick that runs at that minute sends
+  // it. Handing it to an aggregator with a time would make it uneditable a day
+  // before it goes out.
+  if (!slot.late) {
+    const at = slot.at.toISOString();
+    await holdForDelivery(post.id, at);
+    return { platform, slot: slot.key, ok: true, status: 'scheduled', at };
   }
 
-  const published = await publishQueuedPost(post, { scheduledAt });
+  // A slot that has already passed (a missed tick being caught up) goes out
+  // now: the delay is already spent.
+  const published = await publishQueuedPost(post, { scheduledAt: null });
   return {
     platform, slot: slot.key,
     ok: published.ok,
     status: published.status,
-    at: published.ok && scheduledAt ? scheduledAt : null,
     ...(published.ok ? {} : { error: published.error }),
   };
 }
@@ -348,6 +373,7 @@ export async function runAutomation(automation, {
       (_, n) => platforms[(n + i + rotation) % platforms.length]
     );
 
+    let madeInSlot = 0;
     for (const platform of order) {
       // Stop cleanly rather than being killed halfway through an insert.
       if (made >= maxPosts || Date.now() > deadline) {
@@ -355,19 +381,28 @@ export async function runAutomation(automation, {
         complete = false;
         break;
       }
-      made++;
+      let result;
       try {
-        results.push(await runSlot(automation, {
+        result = await runSlot(automation, {
           platform, slot, brand, index: i, rotation, product,
-        }));
+        });
       } catch (e) {
-        results.push({ platform, slot: slot.key, ok: false, error: e.message });
+        result = { platform, slot: slot.key, ok: false, error: e.message };
       }
+      results.push(result);
+      // A slot that was already written costs nothing, so it does not count
+      // against the run's allowance. Posts are written a day ahead, and a
+      // run that re-reads that day (after a settings change, say) would
+      // otherwise spend its whole allowance on slots that are done.
+      if (!result.skipped) made++;
+      if (result.ok && !result.skipped && !result.misconfigured) madeInSlot++;
     }
     if (!complete) break;
     // Counted once per slot so the catalogue advances by one book a slot,
-    // not by one per platform.
-    if (!automation.product_id) await markProductUsed(product?.id);
+    // not by one per platform — and only when the slot was actually written
+    // now, or re-reading a finished day would march the rotation on by a
+    // book per slot without a single post being made about any of them.
+    if (!automation.product_id && madeInSlot > 0) await markProductUsed(product?.id);
     processedThrough = slot.at;
   }
 

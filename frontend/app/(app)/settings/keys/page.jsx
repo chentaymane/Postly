@@ -3,6 +3,7 @@
 import { Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import KeyManager from '../../../../components/KeyManager';
+import SettingsTabs from '../../../../components/SettingsTabs';
 
 function Keys() {
   const params = useSearchParams();
@@ -12,12 +13,13 @@ function Keys() {
   return (
     <>
       <div className="page-head">
-        <h1>API keys</h1>
+        <h1>Settings</h1>
         <p>
           Postly runs on your own provider accounts, so your content and your quota stay
           yours. Keys are encrypted before they are stored and never shown again.
         </p>
       </div>
+      <SettingsTabs />
 
       {error && <div className="notice err">{error}</div>}
       {needs && (

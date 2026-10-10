@@ -68,6 +68,25 @@ export function zonedTimeToUtc(y, m, d, hh, mm, tz) {
   return new Date(secondPass);
 }
 
+function slotFromKey(key) {
+  // '2026-10-10T13:00' → { date, time }
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(String(key || ''));
+  if (!m) return null;
+  return { y: Number(m[1]), mo: Number(m[2]), d: Number(m[3]), time: `${m[4]}:${m[5]}` };
+}
+
+// Resolves a slot key against an automation's real schedule. Returns null for
+// a key the automation would never produce, so a request cannot invent slots
+// and a post written for a time since removed can be recognised as orphaned.
+export function slotFor(automation, key) {
+  const parts = slotFromKey(key);
+  if (!parts) return null;
+  if (!normaliseTimes(automation.times).includes(parts.time)) return null;
+  const { hh, mm } = parseTime(parts.time);
+  const at = zonedTimeToUtc(parts.y, parts.mo, parts.d, hh, mm, automation.timezone);
+  return { date: key.slice(0, 10), time: parts.time, at, key, late: at.getTime() <= Date.now() };
+}
+
 // The calendar date showing on a clock in `tz` at a given instant.
 export function zonedDateParts(instant, tz) {
   const parts = new Intl.DateTimeFormat('en-CA', {

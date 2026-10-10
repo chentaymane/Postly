@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import SettingsTabs from '../../../components/SettingsTabs';
 
 const TONES = [
   'friendly and engaging', 'warm and cozy', 'professional',
@@ -80,7 +81,8 @@ export default function SettingsPage() {
   if (loading) {
     return (
       <>
-        <div className="page-head"><h1>Brand</h1></div>
+        <div className="page-head"><h1>Settings</h1></div>
+        <SettingsTabs />
         <div className="skeleton" style={{ height: 320 }} />
       </>
     );
@@ -89,12 +91,13 @@ export default function SettingsPage() {
   return (
     <>
       <div className="page-head">
-        <h1>Brand</h1>
+        <h1>Settings</h1>
         <p>
           Everything here goes into every post Postly writes. The more specific it is, the less
           the copy reads like it could belong to anyone.
         </p>
       </div>
+      <SettingsTabs />
 
       {saved && (
         <div className="notice ok">

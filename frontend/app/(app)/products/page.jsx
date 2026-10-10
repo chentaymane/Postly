@@ -9,7 +9,7 @@ const EMPTY = {
   price: '', tags: '', enabled: true,
 };
 
-function ProductCard({ p, onChanged }) {
+function ProductCard({ p, isNext, onChanged }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(p);
   const [busy, setBusy] = useState(null);
@@ -32,6 +32,16 @@ function ProductCard({ p, onChanged }) {
     onChanged('Removed');
   }
 
+  async function toggle() {
+    setBusy('toggle');
+    await fetch(`/api/products/${p.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: !p.enabled }),
+    });
+    setBusy(null);
+    onChanged(p.enabled ? `${p.name} paused — skipped by the rotation` : `${p.name} back in the rotation`);
+  }
+
   return (
     <div className={`prod-card${p.enabled ? '' : ' off'}`}>
       <div className="prod-main">
@@ -45,31 +55,32 @@ function ProductCard({ p, onChanged }) {
         <div className="prod-body">
           <div className="prod-head">
             <h3 className="prod-name">{p.name}</h3>
-            {p.price && <span className="pill accent">{p.price}</span>}
-            <span className={`pill ${p.enabled ? 'ok' : 'neutral'}`}>
-              {p.enabled ? 'in rotation' : 'paused'}
-            </span>
+            {p.price && <span className="pill neutral">{p.price}</span>}
+            {isNext && <span className="pill accent"><span className="dot" />Next in rotation</span>}
+            {!p.enabled && <span className="pill neutral">Paused</span>}
           </div>
           {p.description && <p className="prod-desc">{p.description}</p>}
           <div className="prod-stats">
-            <span><strong>{p.posts}</strong> posts</span>
-            <span><strong>{p.clicks}</strong> clicks</span>
-            <span><strong>{p.times_used}</strong> turns taken</span>
+            <span><strong>{p.posts}</strong> post{p.posts === 1 ? '' : 's'}</span>
+            <span><strong>{p.clicks}</strong> click{p.clicks === 1 ? '' : 's'}</span>
             {p.url && (
-              <a className="mini-link" href={p.url} target="_blank" rel="noreferrer">open ↗</a>
+              <a className="mini-link" href={p.url} target="_blank" rel="noreferrer">View page ↗</a>
             )}
           </div>
         </div>
 
         <div className="prod-actions">
-          <button className="link-btn" onClick={() => { setDraft(p); setOpen(!open); }}>
+          <span className="prod-toggle" title={p.enabled ? 'In the rotation' : 'Paused'}>
+            <button className={`switch${p.enabled ? ' on' : ''}`} onClick={toggle}
+                    disabled={!!busy} role="switch" aria-checked={p.enabled}
+                    aria-label={`${p.enabled ? 'Pause' : 'Resume'} ${p.name}`}>
+              <span className="switch-knob" />
+            </button>
+          </span>
+          <button className="btn btn-ghost btn-sm" onClick={() => { setDraft(p); setOpen(!open); }}
+                  aria-expanded={open}>
             {open ? 'Close' : 'Edit'}
           </button>
-          <button className="link-btn" disabled={!!busy}
-                  onClick={() => patch({ enabled: !p.enabled })}>
-            {p.enabled ? 'Pause' : 'Resume'}
-          </button>
-          <button className="link-btn danger" disabled={!!busy} onClick={remove}>Remove</button>
         </div>
       </div>
 
@@ -120,6 +131,10 @@ function ProductCard({ p, onChanged }) {
               {busy === 'save' ? <span className="spinner" /> : 'Save'}
             </button>
             <button className="btn btn-ghost" onClick={() => setOpen(false)}>Cancel</button>
+            <button className="btn btn-ghost danger" style={{ marginLeft: 'auto' }}
+                    disabled={!!busy} onClick={remove}>
+              Remove product
+            </button>
           </div>
         </div>
       )}
@@ -280,10 +295,14 @@ export default function ProductsPage() {
       ) : (
         <>
           <p className="hint" style={{ marginBottom: 'var(--s4)' }}>
-            {active} of {products.length} in rotation · least-used goes next
+            {active} of {products.length} in the rotation. Each new post is about the one used
+            least so far, so every product gets its turn. Switch one off to leave it out.
           </p>
           <div className="prod-list">
-            {products.map((p) => <ProductCard key={p.id} p={p} onChanged={load} />)}
+            {products.map((p) => (
+              <ProductCard key={p.id} p={p} onChanged={load}
+                           isNext={p.enabled && p.id === products.find((x) => x.enabled)?.id} />
+            ))}
           </div>
         </>
       )}

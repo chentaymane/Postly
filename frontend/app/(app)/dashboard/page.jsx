@@ -3,20 +3,19 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { PlatformIcon, NavIcon } from '../../../components/BrandIcons';
+import {
+  PLATFORM_COLORS, platformName, postTitle, relative, whenLong, statusOf,
+} from '../../../components/postkit';
 
-const PLATFORM_COLORS = {
-  pinterest: '#E60023', instagram: '#E4405F', facebook: '#1877F2',
-  x: '#000000', linkedin: '#0A66C2', tiktok: '#010101',
-};
-
-function Kpi({ label, value, sub, tone }) {
-  return (
-    <div className="kpi">
+function Kpi({ label, value, sub, tone, href }) {
+  const body = (
+    <>
       <p className="kpi-label">{label}</p>
       <p className={`kpi-value${tone ? ' ' + tone : ''}`}>{value}</p>
       {sub && <p className="kpi-sub">{sub}</p>}
-    </div>
+    </>
   );
+  return href ? <a className="kpi kpi-link" href={href}>{body}</a> : <div className="kpi">{body}</div>;
 }
 
 // Two-series sparkline. Inline SVG keeps the page dependency-free, and every
@@ -58,7 +57,7 @@ function TrendChart({ daily }) {
         )}
       </svg>
       <div className="legend">
-        <span className="legend-item"><span className="swatch posts" />Posts created</span>
+        <span className="legend-item"><span className="swatch posts" />Posts published</span>
         <span className="legend-item"><span className="swatch clicks" />Link clicks</span>
       </div>
     </div>
@@ -76,7 +75,7 @@ function Bars({ rows, valueKey, label }) {
             <span style={{ color: PLATFORM_COLORS[r.platform], display: 'inline-flex' }}>
               <PlatformIcon platform={r.platform} size={14} />
             </span>
-            {r.platform}
+            {platformName(r.platform)}
           </span>
           <span className="bar-track">
             <span className="bar-fill" style={{ width: `${(r[valueKey] / max) * 100}%` }} />
@@ -85,6 +84,58 @@ function Bars({ rows, valueKey, label }) {
         </div>
       ))}
     </div>
+  );
+}
+
+// The next post that will actually go out, large: the one thing worth
+// checking on any visit.
+function NextUp({ items }) {
+  if (items.length === 0) {
+    return (
+      <section className="panel nextup empty-next">
+        <p className="panel-title">Next up</p>
+        <p className="empty-title">Nothing scheduled</p>
+        <p className="empty">
+          Switch on an automation and its posts show up here a day before they go out.
+        </p>
+        <div className="head-actions" style={{ marginTop: 'var(--s4)' }}>
+          <a className="btn btn-accent" href="/automations">Set up an automation</a>
+          <a className="btn btn-outline" href="/create">Create one post</a>
+        </div>
+      </section>
+    );
+  }
+  const first = items[0];
+  const slot = items.filter((p) => p.scheduled_at === first.scheduled_at);
+  const image = first.image_url || (Array.isArray(first.image_urls) && first.image_urls[0]);
+  const status = statusOf(first);
+  return (
+    <section className="panel nextup">
+      <div className="nextup-media">
+        {image
+          /* eslint-disable-next-line @next/next/no-img-element */
+          ? <img src={image} alt="" />
+          : <span className="nextup-ph"><NavIcon name="calendar" size={28} /></span>}
+      </div>
+      <div className="nextup-body">
+        <p className="panel-title">Next up · {relative(first.scheduled_at)}</p>
+        <p className="nextup-when">{whenLong(first.scheduled_at)}</p>
+        <div className="nextup-plats">
+          {slot.map((p) => (
+            <span key={p.id} className="platform-chip" style={{ background: PLATFORM_COLORS[p.platform] }}>
+              <PlatformIcon platform={p.platform} size={12} /> {platformName(p.platform)}
+            </span>
+          ))}
+          <span className={`pill ${status.tone}`}><span className="dot" />{status.label}</span>
+        </div>
+        <p className="nextup-title">{postTitle(first)}</p>
+        {first.product_name && <p className="nextup-product"><NavIcon name="tag" size={13} /> {first.product_name}</p>}
+        <div className="head-actions">
+          <a className="btn btn-accent btn-sm" href={`/schedule?post=${first.id}`}>Read or change it</a>
+          <a className="btn btn-ghost btn-sm" href="/schedule">Whole schedule →</a>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -101,11 +152,11 @@ export default function DashboardPage() {
   if (!d) {
     return (
       <>
-        <div className="page-head"><h1>Dashboard</h1></div>
+        <div className="page-head"><h1>Home</h1></div>
         <div className="skeleton-stack">
+          <div className="skeleton" style={{ height: 180 }} />
           <div className="skeleton" style={{ height: 110 }} />
           <div className="skeleton" style={{ height: 210 }} />
-          <div className="skeleton" style={{ height: 160 }} />
         </div>
       </>
     );
@@ -113,45 +164,56 @@ export default function DashboardPage() {
 
   const t = d.totals;
   const activeAutos = d.automations.filter((a) => a.enabled).length;
+  const attention = t.drafts + t.failed + t.unconfirmed;
+  const hour = new Date().getHours();
+  const greeting = hour < 5 ? 'Good evening' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
   return (
     <>
       <div className="page-head">
         <div className="head-row">
           <div>
-            <h1>Dashboard</h1>
-            <p>Everything Postly has published for you, and the traffic it brought back.</p>
+            <h1>{greeting}</h1>
+            <p>
+              {activeAutos > 0
+                ? `Autopilot is on — ${activeAutos} automation${activeAutos === 1 ? '' : 's'} running, ${t.scheduled} post${t.scheduled === 1 ? '' : 's'} ready to go out.`
+                : 'Autopilot is off — no automation is running.'}
+            </p>
           </div>
-          <a className="btn btn-accent" href="/create">Create post</a>
+          <div className="head-actions">
+            <a className="btn btn-outline" href="/schedule">Open schedule</a>
+            <a className="btn btn-accent" href="/create">Create post</a>
+          </div>
         </div>
       </div>
+
+      {attention > 0 && (
+        <a className="attention-bar" href="/schedule?tab=review">
+          <span className="notice-icon"><NavIcon name="alert" size={16} /></span>
+          <span>
+            <strong>{attention} post{attention === 1 ? '' : 's'} need{attention === 1 ? 's' : ''} you</strong>
+            {' — '}
+            {[
+              t.drafts && `${t.drafts} to approve`,
+              t.failed && `${t.failed} failed`,
+              t.unconfirmed && `${t.unconfirmed} to check`,
+            ].filter(Boolean).join(', ')}
+          </span>
+          <span className="attention-go">Review →</span>
+        </a>
+      )}
+
+      <NextUp items={d.upcoming} />
 
       <div className="kpi-grid">
-        <Kpi label="Confirmed live" value={t.confirmed}
-             tone={t.confirmed > 0 ? 'success' : undefined}
-             sub={t.confirmed === t.published
-               ? 'verified with the platform'
-               : `${t.published - t.confirmed} awaiting confirmation`} />
-        <Kpi label="Link clicks" value={t.clicks} sub="tracked from your posts" tone="accent" />
-        <Kpi label="Scheduled" value={t.scheduled} sub="queued to go out" />
-        <Kpi label="Awaiting review" value={t.drafts}
-             sub={t.drafts > 0 ? 'in Review' : 'nothing waiting'} />
+        <Kpi label="Published" value={t.published}
+             sub={t.confirmed === t.published ? 'all confirmed live' : `${t.confirmed} confirmed live`}
+             tone={t.published > 0 ? 'success' : undefined} href="/schedule?tab=published" />
+        <Kpi label="Link clicks" value={t.clicks} sub="from your posts" tone="accent" />
+        <Kpi label="Ready to go out" value={t.scheduled} sub="written and scheduled" href="/schedule" />
         <Kpi label="Automations" value={`${activeAutos}/${d.automations.length}`}
-             sub={activeAutos > 0 ? 'active' : 'all paused'} />
-        <Kpi label="Needs attention" value={t.failed + t.unconfirmed}
-             sub={t.unconfirmed > 0 ? `${t.unconfirmed} unconfirmed` : 'publish errors'}
-             tone={t.failed + t.unconfirmed > 0 ? 'danger' : undefined} />
+             sub={activeAutos > 0 ? 'running' : 'all paused'} href="/automations" />
       </div>
-
-      {t.published > t.confirmed && (
-        <div className="notice warn">
-          <span className="notice-icon"><NavIcon name="clock" size={16} /></span>
-          <span className="notice-body">
-            {t.published - t.confirmed} post(s) were accepted by the platform but not yet
-            confirmed as live. Figures here only count posts the platform has confirmed.
-          </span>
-        </div>
-      )}
 
       <section className="panel">
         <p className="panel-title">Last 14 days</p>
@@ -169,7 +231,7 @@ export default function DashboardPage() {
           {t.clicks === 0 && (
             <p className="hint">
               Clicks appear once someone follows a link in a published post. Instagram
-              captions aren&apos;t clickable, so Pinterest and TikTok drive most traffic.
+              captions aren&apos;t clickable, so Pinterest drives most traffic.
             </p>
           )}
         </section>
@@ -186,7 +248,7 @@ export default function DashboardPage() {
                   ? <img className="top-thumb" src={p.image_url} alt="" />
                   : <span className="top-thumb placeholder" />}
                 <span className="platform-chip" style={{ background: PLATFORM_COLORS[p.platform] }}>
-                  <PlatformIcon platform={p.platform} size={12} /> {p.platform}
+                  <PlatformIcon platform={p.platform} size={12} /> {platformName(p.platform)}
                 </span>
                 <span className="top-title">{p.pin_title || p.theme}</span>
                 <span className="top-clicks"><strong>{p.clicks}</strong> clicks</span>
@@ -196,41 +258,22 @@ export default function DashboardPage() {
         </section>
       )}
 
-      <div className="two-col">
-        <section className="panel">
-          <p className="panel-title">Coming up</p>
-          {d.upcoming.length === 0 ? (
-            <p className="empty">Nothing scheduled. <a href="/automations">Set up an automation →</a></p>
-          ) : (
-            <div className="mini-list">
-              {d.upcoming.map((p) => (
-                <div className="mini-row" key={p.id}>
-                  <span className="mini-time">
-                    {new Date(p.scheduled_at).toLocaleString([], { hour12: false, month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                  <span className="platform-chip" style={{ background: PLATFORM_COLORS[p.platform] }}>
-                    <PlatformIcon platform={p.platform} size={12} /> {p.platform}
-                  </span>
-                  <span className="mini-text">{p.pin_title || p.theme}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="panel">
-          <p className="panel-title">Recent activity</p>
+      <section className="panel">
+        <div className="section-head">
+          <p className="panel-title" style={{ margin: 0 }}>Recently published</p>
+          <a className="mini-link" href="/schedule?tab=published">See all →</a>
+        </div>
+        {d.recent.length === 0 ? (
+          <p className="empty">Nothing yet.</p>
+        ) : (
           <div className="mini-list">
             {d.recent.map((p) => (
               <div className="mini-row" key={p.id}>
-                <span className={`pill ${p.remote_status === 'published' ? 'connected' : p.status === 'scheduled' ? 'soon' : p.status === 'failed' ? 'failed' : 'disconnected'}`}>
-                  <span className="dot" />
-                  {p.remote_status === 'published' ? 'live' : p.status}
-                </span>
+                <span className="mini-time">{whenLong(p.at)}</span>
                 <span className="platform-chip" style={{ background: PLATFORM_COLORS[p.platform] }}>
-                  <PlatformIcon platform={p.platform} size={12} /> {p.platform}
+                  <PlatformIcon platform={p.platform} size={12} /> {platformName(p.platform)}
                 </span>
-                <span className="mini-text">{p.pin_title || p.theme}</span>
+                <span className="mini-text">{postTitle(p)}</span>
                 {/* A real link is the only honest proof a post exists. */}
                 {p.platform_post_url && (
                   <a className="mini-link" href={p.platform_post_url}
@@ -239,8 +282,8 @@ export default function DashboardPage() {
               </div>
             ))}
           </div>
-        </section>
-      </div>
+        )}
+      </section>
     </>
   );
 }

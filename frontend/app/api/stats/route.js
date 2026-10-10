@@ -24,7 +24,7 @@ export async function GET() {
            count(*) FILTER (WHERE status = 'published')   AS published,
            count(*) FILTER (WHERE remote_status = 'published') AS confirmed,
            count(*) FILTER (WHERE platform_post_url IS NOT NULL) AS with_link,
-           count(*) FILTER (WHERE status = 'scheduled')   AS scheduled,
+           count(*) FILTER (WHERE status = 'scheduled' AND scheduled_at > now()) AS scheduled,
            count(*) FILTER (WHERE status = 'draft')       AS drafts,
            count(*) FILTER (WHERE status = 'failed')      AS failed,
            count(*) FILTER (WHERE status = 'unconfirmed') AS unconfirmed,
@@ -34,7 +34,7 @@ export async function GET() {
       ),
       query(
         `SELECT platform,
-                count(*) FILTER (WHERE status IN ('published','scheduled')) AS live,
+                count(*) FILTER (WHERE status = 'published') AS live,
                 count(*) AS total
            FROM queued_posts WHERE user_id = $1
           GROUP BY platform ORDER BY live DESC`,
@@ -48,12 +48,13 @@ export async function GET() {
              (now() AT TIME ZONE 'UTC')::date, interval '1 day')::date AS d
          )
          SELECT days.d::text AS day,
-                count(q.id) FILTER (WHERE q.status IN ('published','scheduled')) AS posts,
+                count(q.id) AS posts,
                 (SELECT count(*) FROM link_clicks c
                   WHERE c.user_id = $1 AND c.clicked_at::date = days.d) AS clicks
            FROM days
            LEFT JOIN queued_posts q
-             ON q.user_id = $1 AND q.created_at::date = days.d
+             ON q.user_id = $1 AND q.status = 'published'
+            AND COALESCE(q.last_attempt_at, q.updated_at)::date = days.d
           GROUP BY days.d ORDER BY days.d`,
         [userId]
       ),
@@ -79,18 +80,28 @@ export async function GET() {
            FROM automations WHERE user_id = $1 ORDER BY id`,
         [userId]
       ),
+      // What goes out next, for the "Next up" card. Drafts waiting for
+      // approval count: they are the next thing that needs a decision.
       query(
-        `SELECT id, platform, scheduled_at, pin_title, theme, image_url
-           FROM queued_posts
-          WHERE user_id = $1 AND status = 'scheduled' AND scheduled_at > now()
-          ORDER BY scheduled_at LIMIT 5`,
+        `SELECT q.id, q.platform, q.status, q.delivery, q.format, q.scheduled_at,
+                q.pin_title, q.caption, q.theme, q.image_url, q.image_urls,
+                q.video_url, q.video_status, q.published_post_id,
+                p.name AS product_name
+           FROM queued_posts q
+           LEFT JOIN products p ON p.id = q.product_id
+           LEFT JOIN automations a ON a.id = q.automation_id
+          WHERE q.user_id = $1 AND q.status IN ('scheduled','draft')
+            AND q.scheduled_at > now()
+            AND (a.id IS NULL OR a.enabled)
+          ORDER BY q.scheduled_at LIMIT 6`,
         [userId]
       ),
       query(
-        `SELECT id, platform, status, theme, pin_title, image_url, format, updated_at,
-                platform_post_url, remote_status, error_message
-           FROM queued_posts WHERE user_id = $1
-          ORDER BY updated_at DESC LIMIT 6`,
+        `SELECT id, platform, status, theme, pin_title, caption, image_url, format,
+                platform_post_url, remote_status,
+                COALESCE(last_attempt_at, updated_at) AS at
+           FROM queued_posts WHERE user_id = $1 AND status = 'published'
+          ORDER BY at DESC LIMIT 6`,
         [userId]
       ),
     ]);

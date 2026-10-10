@@ -110,10 +110,18 @@ export async function POST(request, { params }) {
         });
       }
 
-      const { publishQueuedPost } = await import('../../../../../lib/publishqueued');
-      const result = await publishQueuedPost(post, {
-        scheduledAt: stillAhead ? slotAt.toISOString() : null,
-      });
+      const { publishQueuedPost, holdForDelivery } = await import('../../../../../lib/publishqueued');
+
+      // Rendered ahead of its slot: held here like every other automation
+      // post, so it stays editable and skippable until its minute.
+      if (stillAhead) {
+        await holdForDelivery(post.id, slotAt.toISOString());
+        return NextResponse.json({
+          ok: true, video_status: 'ready', published: false, post_status: 'scheduled',
+        });
+      }
+
+      const result = await publishQueuedPost(post, { scheduledAt: null });
       return NextResponse.json({
         ok: true,
         video_status: 'ready',
