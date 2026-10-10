@@ -30,6 +30,8 @@ import { slotsBetween } from './schedule.js';
 import { publishQueuedPost } from './publishqueued.js';
 import { reconcileUser } from './reconcile.js';
 import { nextAttemptAt, MAX_ATTEMPTS } from './retry.js';
+import { persistImage, imageStoreEnabled } from './imagestore.js';
+import { hasImageKey } from './imagehost.js';
 
 // How far ahead posts are written.
 //
@@ -392,6 +394,65 @@ async function retryFailed({ now, deadline }) {
   return { attempted, recovered };
 }
 
+// 4b. Copy the artwork of upcoming posts into our own storage.
+//
+// A post whose pictures are still on the image host's URLs makes the platform
+// fetch them from there at publish time, and the host refuses cloud addresses
+// with HTTP 402 — the "bad status code: 402" Instagram kept rejecting posts
+// with. Posts are written a day ahead, so there is time to fix that before they
+// go out: soonest first, while the tick has time to spare.
+//
+// Only with an image key: without one the host refuses this server almost
+// every time, and trying would just spend the tick's budget on refusals.
+const isHosted = (u) => /\.public\.blob\.vercel-storage\.com/i.test(String(u || ''));
+
+async function repairImages({ deadline }) {
+  if (!hasImageKey() || !imageStoreEnabled()) return 0;
+
+  const { rows } = await query(
+    `SELECT id, image_url, image_urls FROM queued_posts
+      WHERE status IN ('scheduled','draft') AND published_post_id IS NULL
+        AND format <> 'video'
+        AND (scheduled_at IS NULL OR scheduled_at > now() - interval '1 hour')
+        AND (image_url LIKE 'https://image.pollinations.ai/%'
+             OR image_urls::text LIKE '%image.pollinations.ai%')
+      ORDER BY scheduled_at NULLS LAST
+      LIMIT 6`
+  );
+
+  let repaired = 0;
+  for (const post of rows) {
+    if (remaining(deadline) < 60000) break;
+    const slides = Array.isArray(post.image_urls) ? post.image_urls : null;
+    const urls = Array.from(new Set([post.image_url, ...(slides || [])]))
+      .filter((u) => u && !isHosted(u));
+
+    const copies = new Map();
+    for (const [i, url] of urls.entries()) {
+      // One bounded attempt per picture: a slow host must not run the tick
+      // past its budget, and the next tick tries again anyway.
+      if (remaining(deadline) < 60000) break;
+      const copy = await persistImage(url, { key: `post-${post.id}-${i + 1}`, attempts: 1, timeoutMs: 25000 });
+      if (copy !== url) copies.set(url, copy);
+    }
+    // Nothing came through even with the key — the allowance is spent, say.
+    // Stop here rather than spending the rest of the tick on refusals.
+    if (copies.size === 0) break;
+
+    const swap = (u) => copies.get(u) || u;
+    // Still held? A tick may have claimed it for sending meanwhile, and that
+    // send must not have its pictures changed underneath it.
+    const { rowCount } = await query(
+      `UPDATE queued_posts
+          SET image_url = $2, image_urls = COALESCE($3::jsonb, image_urls), updated_at = now()
+        WHERE id = $1 AND status IN ('scheduled','draft') AND published_post_id IS NULL`,
+      [post.id, swap(post.image_url), slides ? JSON.stringify(slides.map(swap)) : null]
+    );
+    repaired += rowCount ? 1 : 0;
+  }
+  return repaired;
+}
+
 // 6. Ask the platforms what actually happened, for the users who have had
 // activity recently. Without this the dashboard counts requests we sent rather
 // than posts that exist.
@@ -535,6 +596,7 @@ export async function runSchedulerTick({
     // writing tomorrow, and a post due now must not wait behind that.
     const delivered = await deliverDue({ now, deadline });
     const retried = await retryFailed({ now, deadline });
+    const repaired = await repairImages({ deadline }).catch(() => 0);
     const automations = await generateDue({ now, deadline });
     const reconciled = await reconcileRecent({ deadline });
 
@@ -546,6 +608,7 @@ export async function runSchedulerTick({
       generated: automations.reduce((n, r) => n + (r.generated || 0), 0),
       delivered: delivered.published,
       retried: retried.recovered,
+      repaired,
       reconciled: reconciled.confirmed,
       failed: automations.reduce((n, r) => n + (r.failed || 0), 0) + delivered.failed,
       ms: Date.now() - startedAt,
