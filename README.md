@@ -104,6 +104,10 @@ Required in `.env.local`:
 - `CRON_SECRET` — authorises the scheduler tick; without it automations never run
 - `CREDENTIALS_KEY` — encrypts users' stored API keys (falls back to `AUTH_SECRET`)
 - `LEGAL_CONTACT_EMAIL` — shown on the Privacy and Terms pages
+- `POSTLY_POLLINATIONS_KEY` — a free secret key from
+  [enter.pollinations.ai](https://enter.pollinations.ai). Optional, but on Vercel
+  the image host answers keyless requests with HTTP 402, so without it artwork
+  stays on their URLs instead of your blob store and Instagram can reject posts
 - Per platform: `<PLATFORM>_CLIENT_ID` / `_CLIENT_SECRET`
 
 ## Connecting a platform

@@ -15,6 +15,7 @@ import {
 import { createZernioPost, listRecentPosts as listRecentZernioPosts } from './zernio.js';
 import { modelFor, forgetModel, isModelError } from './models.js';
 import { persistImage, persistImages } from './imagestore.js';
+import { fetchGeneratedImage } from './imagehost.js';
 import { productBrief } from './products.js';
 
 // ---------------------------------------------------------------------------
@@ -588,7 +589,7 @@ export async function warmImage(url, timeoutMs = 45000, attempts = 3) {
 
 async function warmOnce(url, timeoutMs) {
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    const res = await fetchGeneratedImage(url, { timeoutMs });
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
     const buf = await res.arrayBuffer();
     const size = readImageSize(buf);

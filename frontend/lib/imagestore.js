@@ -18,6 +18,7 @@
 // change after approval.
 
 import { put } from '@vercel/blob';
+import { fetchGeneratedImage } from './imagehost.js';
 
 // Vercel names a store's token after the store. The public store is the one
 // platforms can actually read from; the private one would 403 them, which is a
@@ -46,7 +47,7 @@ async function fetchWithRetry(url, { attempts = 3, timeoutMs = 60000 } = {}) {
   for (let n = 0; n < attempts; n++) {
     if (n > 0) await sleep(GAP_MS * (n + 1));
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+      const res = await fetchGeneratedImage(url, { timeoutMs });
       if (res.ok) {
         const buf = Buffer.from(await res.arrayBuffer());
         if (buf.length > 1000) return buf;
