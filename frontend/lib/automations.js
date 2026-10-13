@@ -287,6 +287,28 @@ async function runSlot(automation, { platform, slot, brand, index, rotation, pro
   };
 }
 
+// Failures worth waiting out rather than writing off: rate limits, timeouts,
+// a provider having a bad minute. Deliberately narrower than retry.js's
+// "transient", which also covers unknown errors — an unknown error that keeps
+// coming back must not hold every later slot up behind it.
+const PASSING_FAILURE = /rate ?limit|too many requests|\b429\b|timed? ?out|timeout|ETIMEDOUT|ECONNRESET|fetch failed|HTTP 5\d\d|\b50[234]\b|service unavailable|temporarily/i;
+
+// The product and angle an already-written post of this slot was given, so
+// the rest of the slot matches it.
+async function slotSibling(automationId, slotKey) {
+  const { rows } = await query(
+    `SELECT q.recipe, p.*
+       FROM queued_posts q
+       JOIN products p ON p.id = q.product_id
+      WHERE q.automation_id = $1 AND q.slot_key LIKE $2 AND q.status <> 'generating'
+      ORDER BY q.id LIMIT 1`,
+    [automationId, `${slotKey}|%`]
+  );
+  if (!rows[0]) return null;
+  const { recipe, ...product } = rows[0];
+  return { product, recipe };
+}
+
 // Runs an automation for a given set of slots.
 //
 // `slots` comes from the scheduler (what is actually due) or from "Run now"
@@ -348,6 +370,7 @@ export async function runAutomation(automation, {
   const results = [];
   let made = 0;
   let ranOutOfTime = false;
+  let stalled = false;
   // The instant up to which this run is definitively done. Only slots whose
   // every platform was attempted count: advancing the watermark past a slot the
   // run never reached would drop it silently, which is exactly the class of bug
@@ -360,7 +383,11 @@ export async function runAutomation(automation, {
     // One product per slot, shared by every platform in it: the same book on
     // Instagram and Pinterest at 09:00 is one campaign, whereas a different
     // book per platform would read as two unrelated posts.
-    const product = await pickProduct(automation.user_id, {
+    //
+    // A slot finished on a later tick (one platform written, the other held
+    // back by a rate limit) keeps the book and angle its first post got.
+    const sibling = await slotSibling(automation.id, slot.key);
+    const product = sibling?.product || await pickProduct(automation.user_id, {
       pinnedId: automation.product_id,
     });
 
@@ -368,9 +395,9 @@ export async function runAutomation(automation, {
     // Pinterest at 09:00 should tell the same story about the same book. The
     // seed moves with the slot and the run, so the angle changes from post to
     // post instead of every slot opening the same way.
-    const recipe = product
+    const recipe = sibling?.recipe || (product
       ? pickRecipe(product, { postType: automation.post_type, seed: i + rotation + (automation.run_count || 0), brand }).key
-      : null;
+      : null);
 
     // Start each slot on a different platform.
     //
@@ -406,6 +433,18 @@ export async function runAutomation(automation, {
       // otherwise spend its whole allowance on slots that are done.
       if (!result.skipped) made++;
       if (result.ok && !result.skipped && !result.misconfigured) madeInSlot++;
+
+      // A passing failure — the writer's per-minute limit, a timeout — on a
+      // slot still ahead of us pauses the run here instead of moving past the
+      // slot for good. Posts are written a day early, so there is time: the
+      // next tick picks this slot up again, and nothing after it is written
+      // out of order meanwhile.
+      if (!result.ok && !result.skipped && !result.misconfigured && !slot.late
+          && PASSING_FAILURE.test(String(result.error || ''))) {
+        stalled = true;
+        complete = false;
+        break;
+      }
     }
     if (!complete) break;
     // Counted once per slot so the catalogue advances by one book a slot,
@@ -437,6 +476,7 @@ export async function runAutomation(automation, {
   const detail = [
     ...results.map((r) => `${r.platform} ${r.slot?.slice(11) || ''} ${r.ok ? r.status || 'ok' : r.error}`.trim()),
     ranOutOfTime ? 'stopped early — out of time this tick, the rest resume next tick' : '',
+    stalled ? 'paused on a temporary error — this slot is tried again next tick' : '',
   ].filter(Boolean).join(' · ').slice(0, 600);
 
   await finish(runStatus, detail, counts);
