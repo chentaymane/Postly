@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { PlatformIcon } from '../../../components/BrandIcons';
+import { RECIPES } from '../../../lib/recipes';
 
 const TONES = [
   'friendly and engaging',
@@ -28,6 +29,11 @@ export default function CreatePage() {
   const [templates, setTemplates] = useState([]);
   const [savingTemplate, setSavingTemplate] = useState(false);
   const [templateSaved, setTemplateSaved] = useState(false);
+  // A post about one product is designed from its own pictures — the default
+  // when there are products, since that is what sells.
+  const [products, setProducts] = useState([]);
+  const [productId, setProductId] = useState('');
+  const [recipe, setRecipe] = useState('');
 
   useEffect(() => {
     fetch('/api/connections', { cache: 'no-store' })
@@ -42,6 +48,13 @@ export default function CreatePage() {
     fetch('/api/templates', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => d && setTemplates(d.templates || []));
+    fetch('/api/products', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        const list = (d?.products || []).filter((p) => p.enabled);
+        setProducts(list);
+        if (list[0]) setProductId(String(list[0].id));
+      });
   }, []);
 
   function loadTemplate(id) {
@@ -90,7 +103,10 @@ export default function CreatePage() {
     const res = await fetch('/api/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, postType, format, platforms: Array.from(selected) }),
+      body: JSON.stringify({
+        ...form, postType, format, platforms: Array.from(selected),
+        ...(productId ? { product_id: Number(productId), recipe: recipe || undefined } : {}),
+      }),
     });
     if (res.status === 401) { router.push('/login'); return; }
     const json = await res.json();
@@ -111,7 +127,8 @@ export default function CreatePage() {
     setSubmitting(false);
   }
 
-  const canSubmit = form.theme.trim() && selected.size > 0 && !submitting;
+  const product = products.find((p) => String(p.id) === String(productId)) || null;
+  const canSubmit = (product || form.theme.trim()) && selected.size > 0 && !submitting;
   const firstPreview = results?.find((r) => r.preview)?.preview;
   const previewPlatform = results?.find((r) => r.preview)?.platform;
 
@@ -120,8 +137,9 @@ export default function CreatePage() {
       <div className="page-head">
         <h1>Create a post</h1>
         <p>
-          Describe it and Postly writes the copy and makes the picture. Nothing goes out yet:
-          the draft waits in Schedule for you to read and approve.
+          Pick a product and Postly writes the post and designs the slides from its own
+          pictures — or describe anything else. Nothing goes out yet: the draft waits in
+          Schedule for you to read and approve.
         </p>
       </div>
 
@@ -143,6 +161,45 @@ export default function CreatePage() {
           )}
 
           <form className="form" onSubmit={submit}>
+            {products.length > 0 && (
+              <div className="field">
+                <label htmlFor="product">What is it about?</label>
+                <select id="product" value={productId} onChange={(e) => setProductId(e.target.value)}>
+                  {products.map((p) => (
+                    <option key={p.id} value={p.id}>{p.name}{p.price ? ` — ${p.price}` : ''}</option>
+                  ))}
+                  <option value="">Something else — I'll describe it</option>
+                </select>
+                {product && (
+                  <div className="create-product">
+                    {product.image_url && (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img src={product.image_url} alt="" />
+                    )}
+                    <span>
+                      <strong>{product.name}</strong>
+                      <span className="hint" style={{ display: 'block', marginTop: 2 }}>
+                        {[product.price, product.facts].filter(Boolean).join(' · ') || 'From your Products page'}
+                      </span>
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {product && (
+              <div className="field">
+                <label htmlFor="recipe">Angle</label>
+                <select id="recipe" value={recipe} onChange={(e) => setRecipe(e.target.value)}>
+                  <option value="">Surprise me — pick one that fits</option>
+                  {Object.entries(RECIPES).map(([key, r]) => (
+                    <option key={key} value={key}>{r.label}</option>
+                  ))}
+                </select>
+                <p className="hint">The creative frame around the product. Every angle still sells this exact product.</p>
+              </div>
+            )}
+
             <div className="field">
               <label>What kind of post?</label>
               <div className="checks">
@@ -182,9 +239,9 @@ export default function CreatePage() {
               </div>
               {format === 'carousel' && (
                 <p className="hint">
-                  3–4 slides telling one story — e.g. bored kid on a phone → discovers colouring →
-                  proudly shows the finished page. Publishes as a swipeable carousel on Instagram,
-                  Facebook and Pinterest.
+                  {product
+                    ? 'Up to 4 designed slides: the product, its cover, why it is worth it, and how to get it.'
+                    : '3–4 slides telling one story. Publishes as a swipeable carousel on Instagram, Facebook and Pinterest.'}
                 </p>
               )}
               {format === 'video' && (
@@ -196,6 +253,7 @@ export default function CreatePage() {
               )}
             </div>
 
+            {!product && (<>
             <div className="field">
               <label htmlFor="theme">Theme or product *</label>
               <input id="theme" required value={form.theme}
@@ -231,6 +289,16 @@ export default function CreatePage() {
                      placeholder="https://yourshop.com/product" />
               <p className="hint">Used for the Pinterest Pin link and the call to action.</p>
             </div>
+            </>)}
+
+            {product && (
+              <div className="field">
+                <label htmlFor="tone">Tone of voice</label>
+                <select id="tone" value={form.tone} onChange={(e) => update('tone', e.target.value)}>
+                  {TONES.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+            )}
 
             <div className="field">
               <label>Publish to</label>

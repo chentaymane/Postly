@@ -334,6 +334,18 @@ video.sheet-img { background: #000; max-height: 460px; }
 .health-details code { font-family: var(--mono); font-size: 12px; background: var(--surface-2); padding: 1px 5px; border-radius: 5px; }
 .auto-actions .btn svg { flex-shrink: 0; }
 
+/* The product a new post will be about, on the Create page. */
+.create-product {
+  display: flex; align-items: center; gap: var(--s3);
+  margin-top: var(--s3); padding: var(--s2);
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.create-product img {
+  width: 88px; height: 56px; object-fit: cover; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); flex-shrink: 0; background: var(--surface);
+}
+.create-product strong { font-size: 14px; }
+
 /* ============================================================== Home ==== */
 
 .attention-bar {
