@@ -14,7 +14,9 @@ import {
 } from './socialapi.js';
 import { createZernioPost, listRecentPosts as listRecentZernioPosts } from './zernio.js';
 import { modelFor, forgetModel, isModelError } from './models.js';
-import { persistImage, persistImages } from './imagestore.js';
+import { persistImage, persistImages, storeImage } from './imagestore.js';
+import { designSlides, canDesign } from './designer.js';
+import { pickRecipe, recipeBrief, occasionFor } from './recipes.js';
 import { fetchGeneratedImage } from './imagehost.js';
 import { productBrief } from './products.js';
 
@@ -185,6 +187,87 @@ ${ownRules}` : '',
   const imagePrompt = `a person using ${productForImage}, real unposed moment, ${subject}`;
 
   return { subject, systemPrompt, userPrompt, imagePrompt };
+}
+
+// Prompts for a post that sells ONE product directly, written to a creative
+// recipe (see recipes.js), with the words for the designed slides included.
+//
+// The general builder above was written for posts illustrated by generated
+// photos, so it asks for image scenes and tells the writer never to open with
+// the product. Here the picture is the product itself and the job is the
+// opposite: name it, show what is in it, and give the slides their words.
+export function buildProductPrompts({
+  product, recipeKey, ctx = {}, platform, brand, tone, customPrompt = '',
+}) {
+  const r = recipeBrief(recipeKey, ctx);
+  const forPinterest = platform === 'pinterest';
+  const free = /^(free|0|\$?0(\.00)?)$/i.test(String(product.price || '').trim());
+  const action = forPinterest ? '"tap to get it"' : platform === 'facebook' ? '"link below"' : '"link in bio"';
+
+  const systemPrompt =
+    'You write social media posts for small online shops. Every post sells ONE specific product, directly. ' +
+    'Rules you always follow:\n' +
+    '1. THE PRODUCT IS THE SUBJECT. Name it naturally within the first two lines (you may shorten a long ' +
+    'catalogue name, e.g. "Coloring Book : Halloween" can be "our Halloween coloring book"). Everything you ' +
+    'write is about this product, never the category in general.\n' +
+    `2. TODAY'S ANGLE — ${r.label}: ${r.brief}\n` +
+    '3. HOOK FIRST. The first line is at most 12 words, works on its own and makes someone stop scrolling. ' +
+    'No preamble, no "Are you looking for", no emoji before the first word.\n' +
+    '4. FACTS ONLY FROM THE DETAILS. Use what the product details say; never invent page counts, reviews, ' +
+    'ratings, sales figures, awards, discounts, deadlines or shipping. A number in the details may be used exactly. ' +
+    'Only name pages, characters or scenes the details mention; otherwise describe the theme. Do not claim how ' +
+    'long it keeps anyone busy.\n' +
+    '5. SPECIFIC BEATS PRETTY. Include at least one concrete detail from this product — a character, a page, ' +
+    'a number from the details, the price.\n' +
+    '6. BANNED, never write: "elevate", "unleash", "discover the magic", "dive in", "game-changer", ' +
+    '"look no further", "in today\'s world", "the perfect way to", "say goodbye to", "transform your", ' +
+    '"level up", "must-have", "curated".\n' +
+    '7. Short sentences, a line break between thoughts, 6th-grade reading level. One real person talking to ' +
+    'one real person; contractions, not corporate.\n' +
+    '8. Hashtags: 6-10, product-specific ones first (its theme, its type), then small niche communities. ' +
+    'Nothing with over 10 million posts.\n' +
+    `9. The call to action points at this product's link (${action}). Never paste a URL.\n` +
+    '10. WORDS ON THE IMAGES — short, punchy, no emoji, no hashtags, no quotation marks, same language as the caption: ' +
+    `"headline": ${r.headline}; ` +
+    '"subhead": at most 12 words, one concrete fact or promise from the details; ' +
+    '"badge": at most 3 words, the most reassuring selling point (for example "Instant download"); ' +
+    '"cover_line": at most 8 words about what the product shows or contains; ' +
+    '"bullets_title": at most 4 words; "bullets": exactly 3 concrete benefits, each at most 6 words; ' +
+    '"cta_line": at most 5 words inviting them to get it' + (free ? ' (it is free — say so)' : '') + '.\n' +
+    'Respond ONLY with a valid JSON object with exactly these keys: "caption" (the hook line, a blank line, ' +
+    'then the body), "hashtags" (array of strings without #), "cta" (one short line), "headline", "subhead", ' +
+    '"badge", "cover_line", "bullets_title", "bullets" (array of 3 strings), "cta_line"' +
+    (forPinterest
+      ? ', "pin_title" (at most 90 characters, keyword-rich: what it is, who it is for and the format — the ' +
+        'words buyers type into Pinterest search), "pin_description" (at most 480 characters, natural and ' +
+        'keyword-rich, ending with a reason to click)'
+      : '') +
+    '. No markdown, no code fences, no extra keys.';
+
+  const plain = (t, max) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, max);
+  const language = String(brand?.language || '').trim();
+  const banned = String(brand?.banned_words || '').trim();
+  const ownRules = String(customPrompt || '').trim();
+
+  const userPrompt = [
+    brand?.store_name ? `Shop: ${brand.store_name}.` : '',
+    brand?.audience ? `Who buys from this shop: ${brand.audience}.` : '',
+    `PRODUCT: "${product.name}".`,
+    `Price: ${free ? 'FREE' : plain(product.price, 40) || 'see the link'}.`,
+    product.facts ? `Facts: ${plain(product.facts, 200)}.` : '',
+    product.description ? `Details: ${plain(product.description, 1100)}` : '',
+    product.benefits ? `Why people buy it: ${plain(product.benefits, 400)}` : '',
+    product.tags ? `Themes: ${plain(product.tags, 200)}.` : '',
+    ctx.occasion ? `Coming up: ${ctx.occasion.name}${ctx.occasion.days != null ? ` in ${ctx.occasion.days} days` : ''}.` : '',
+    `Platform: ${platform || 'social media'}. Tone: ${tone || 'warm and friendly'}.`,
+    language && language.toLowerCase() !== 'english'
+      ? `WRITE EVERYTHING IN ${language.toUpperCase()} — caption, image words, hashtags, CTA and titles.`
+      : '',
+    banned ? `NEVER use these words or phrases: ${banned}.` : '',
+    ownRules ? `THE BRAND'S OWN RULES (these outrank the general guidance):\n${ownRules}` : '',
+  ].filter(Boolean).join('\n');
+
+  return { subject: product.name, systemPrompt, userPrompt };
 }
 
 // Wraps the model-written scene with a consistent photographic treatment.
@@ -454,6 +537,18 @@ function parseCopy(raw, fallbackSubject) {
           .filter((s) => s.narration && s.imagePrompt)
           .slice(0, 6)
       : null,
+    // Words for the designed slides (product posts only; absent otherwise).
+    overlay: {
+      headline: String(parsed.headline || '').trim().slice(0, 90),
+      subhead: String(parsed.subhead || '').trim().slice(0, 140),
+      badge: String(parsed.badge || '').trim().slice(0, 32),
+      coverLine: String(parsed.cover_line || '').trim().slice(0, 90),
+      bulletsTitle: String(parsed.bullets_title || '').trim().slice(0, 50),
+      bullets: Array.isArray(parsed.bullets)
+        ? parsed.bullets.map((b) => String(b || '').trim().slice(0, 70)).filter(Boolean).slice(0, 3)
+        : [],
+      ctaLine: String(parsed.cta_line || '').trim().slice(0, 60),
+    },
     fullMessage: [caption, cta, hashtags].filter(Boolean).join('\n\n'),
   };
 }
@@ -489,13 +584,26 @@ export async function generateCopy(prompts, subject) {
       }
       continue;
     }
-    try {
-      const raw = await callWriter(kind, prompts);
-      const copy = parseCopy(raw, subject);
-      if (!copy.caption) throw new Error('empty caption returned');
-      return { ...copy, provider: kind };
-    } catch (e) {
-      errors.push(`${kind}: ${e.message}`);
+    // A free-tier writer that is merely over its per-minute allowance says how
+    // long to wait. Waiting that long once is cheaper than failing the slot —
+    // writing a day of posts ahead sends several requests in quick succession.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const raw = await callWriter(kind, prompts);
+        const copy = parseCopy(raw, subject);
+        if (!copy.caption) throw new Error('empty caption returned');
+        return { ...copy, provider: kind };
+      } catch (e) {
+        const wait = /rate limit|429|too many requests/i.test(e.message)
+          ? Number(/try again in ([\d.]+)\s*s/i.exec(e.message)?.[1] || 0)
+          : 0;
+        if (attempt === 0 && wait > 0 && wait <= 30) {
+          await new Promise((r) => setTimeout(r, Math.ceil((wait + 0.5) * 1000)));
+          continue;
+        }
+        errors.push(`${kind}: ${e.message}`);
+        break;
+      }
     }
   }
 
@@ -1119,7 +1227,55 @@ async function publishViaZernio(conn, content, platform, scheduledAt) {
 // Generates copy + image for one platform WITHOUT publishing. The image scene
 // is written by the copy model for THIS post (a real moment with a person),
 // then wrapped in a consistent photographic style.
+// A post about one product, illustrated with that product's own pictures
+// laid out as designed slides. Used whenever the product has a picture.
+async function generateDesignedContent({ platform, input, brand, product }) {
+  const picked = input.recipe
+    ? { key: input.recipe, ctx: { occasion: occasionFor(product) } }
+    : pickRecipe(product, { postType: input.postType, seed: input.seed || 0, brand });
+  const key = picked.key;
+  const prompts = buildProductPrompts({
+    product, recipeKey: key, ctx: picked.ctx, platform, brand,
+    tone: input.tone, customPrompt: input.customPrompt,
+  });
+  const copy = await generateCopy(prompts, prompts.subject);
+
+  const kinds = input.format === 'carousel' ? recipeBrief(key, picked.ctx).slides : ['hero'];
+  const assetKey = `${platform}-${Date.now().toString(36)}`;
+  let imageUrls = [];
+  try {
+    const slides = await designSlides({
+      product, copy: copy.overlay || {}, kinds,
+      dims: imageDimsFor(platform, input.format === 'video' ? 'single' : input.format),
+      platform, tone: input.tone, brandName: brand?.store_name,
+    });
+    for (const [i, buf] of slides.entries()) {
+      imageUrls.push(await storeImage(buf, `${assetKey}-${i + 1}`));
+    }
+  } catch (e) {
+    // The product's own pictures, undecorated, still beat a generated scene:
+    // the post shows the real thing either way.
+    console.error(`designed slides failed for ${product.name}: ${e.message}`);
+    imageUrls = [product.image_url, ...(Array.isArray(product.gallery) ? product.gallery : [])]
+      .filter(Boolean)
+      .slice(0, input.format === 'carousel' ? 4 : 1);
+  }
+
+  return {
+    ...copy,
+    imageUrl: imageUrls[0],
+    imageUrls,
+    subject: prompts.subject,
+    recipe: key,
+  };
+}
+
 export async function generateContent({ platform, input, brand, product = null }) {
+  // A product with a picture gets a post about it, made from its own images.
+  // Video still goes through the scripted path below.
+  if (product && canDesign(product) && input.format !== 'video') {
+    return generateDesignedContent({ platform, input, brand, product });
+  }
   const forPinterest = platform === 'pinterest';
   // Every generated image is copied into our own storage before it leaves this
   // function. The generator makes a picture per request rather than serving a

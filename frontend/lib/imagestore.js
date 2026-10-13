@@ -93,6 +93,21 @@ export async function persistImage(url, { key, buffer = null, attempts = 3, time
   }
 }
 
+// Stores an image we made ourselves (a designed slide) and returns its public
+// URL. Unlike persistImage there is no original to fall back to, so a failure
+// is thrown for the caller to handle.
+export async function storeImage(buffer, key) {
+  if (!imageStoreEnabled()) throw new Error('no image store is configured');
+  const { url } = await put(`postly/${key}.jpg`, buffer, {
+    access: 'public',
+    token: blobToken(),
+    contentType: 'image/jpeg',
+    addRandomSuffix: true,
+    cacheControlMaxAge: 31536000,
+  });
+  return url;
+}
+
 // Several images, one after another. Sequential on purpose — see GAP_MS.
 export async function persistImages(urls, { prefix, buffers = [] }) {
   const out = [];

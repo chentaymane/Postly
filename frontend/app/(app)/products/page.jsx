@@ -60,6 +60,7 @@ function ProductCard({ p, isNext, onChanged }) {
             {!p.enabled && <span className="pill neutral">Paused</span>}
           </div>
           {p.description && <p className="prod-desc">{p.description}</p>}
+          {p.facts && <p className="prod-facts">{p.facts}</p>}
           <div className="prod-stats">
             <span><strong>{p.posts}</strong> post{p.posts === 1 ? '' : 's'}</span>
             <span><strong>{p.clicks}</strong> click{p.clicks === 1 ? '' : 's'}</span>
@@ -189,6 +190,22 @@ export default function ProductsPage() {
     load('Added to the rotation');
   }
 
+  // Re-reads every product's own shop page: the pictures posts are designed
+  // from, the full description and the facts.
+  async function refreshAll() {
+    setBusy('refresh'); setError(null);
+    const res = await fetch('/api/products', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_all: true }),
+    });
+    const json = await res.json().catch(() => ({}));
+    setBusy(null);
+    if (!res.ok) { setError(json.error || 'could not refresh the products'); return; }
+    load(json.failed?.length
+      ? `Updated ${json.refreshed}; ${json.failed.length} could not be read`
+      : `Updated ${json.refreshed} product${json.refreshed === 1 ? '' : 's'} from their pages`);
+  }
+
   const active = products.filter((p) => p.enabled).length;
 
   return (
@@ -198,13 +215,22 @@ export default function ProductsPage() {
           <div>
             <h1>Products</h1>
             <p>
-              What your posts are actually about. Automations work through this list
-              one item at a time, so a catalogue of twenty becomes twenty different posts.
+              What your posts are about. Each post shows one of these with its own pictures,
+              price and details, and automations work through the list so every product gets
+              its turn.
             </p>
           </div>
-          <button className="btn btn-accent" onClick={() => { setDraft(EMPTY); setAdding(!adding); }}>
-            {adding ? 'Close' : 'Add product'}
-          </button>
+          <div className="head-actions">
+            {products.some((p) => p.url) && (
+              <button className="btn btn-outline" onClick={refreshAll} disabled={busy === 'refresh'}
+                      title="Re-read each product's shop page for its pictures, description and facts">
+                {busy === 'refresh' ? <span className="spinner" /> : 'Refresh from shop'}
+              </button>
+            )}
+            <button className="btn btn-accent" onClick={() => { setDraft(EMPTY); setAdding(!adding); }}>
+              {adding ? 'Close' : 'Add product'}
+            </button>
+          </div>
         </div>
       </div>
 

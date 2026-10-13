@@ -6,7 +6,7 @@ import { PlatformIcon, NavIcon } from '../../../components/BrandIcons';
 import PostEditor, { abilities } from '../../../components/PostEditor';
 import {
   PLATFORM_COLORS, FORMAT_NAMES, platformName, timeOf, dayKey, dayLabel, dateLine,
-  whenLong, relative, postTitle, slidesOf, statusOf,
+  whenLong, relative, postTitle, slidesOf, statusOf, angleName,
 } from '../../../components/postkit';
 
 // ---------------------------------------------------------------------------
@@ -57,6 +57,7 @@ function PostCard({ post, onOpen }) {
         <span className="sch-title">{postTitle(post)}</span>
         <span className="sch-meta">
           {post.product_name || FORMAT_NAMES[post.format] || post.format}
+          {angleName(post.recipe) && ` · ${angleName(post.recipe)}`}
           {post.status === 'published' && post.platform_post_url && ' · view on ' + platformName(post.platform)}
         </span>
       </span>

@@ -1153,6 +1153,9 @@ video.review-img { aspect-ratio: 9 / 16; max-height: 440px; background: #000; ob
 .prod-body { flex: 1; min-width: 0; }
 .prod-head { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
 .prod-name { font-size: 15.5px; font-weight: 650; margin: 0; }
+.prod-facts {
+  margin: var(--s1) 0 0; font-size: 12.5px; font-weight: 600; color: var(--accent-deep);
+}
 .prod-desc {
   margin: var(--s2) 0 0; font-size: 13.5px; color: var(--text-dim);
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;

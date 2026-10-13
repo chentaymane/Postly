@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 import { query } from '../../../lib/db';
 import { currentUserId } from '../../../lib/auth';
-import { importFromUrl } from '../../../lib/products';
+import { importFromUrl, refreshProduct } from '../../../lib/products';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+// Refreshing the whole catalogue reads one shop page per product.
+export const maxDuration = 120;
 
 export async function GET() {
   const userId = await currentUserId();
@@ -39,6 +41,11 @@ function clean(b) {
     price: text(b.price, 60),
     tags: text(b.tags, 300),
     enabled: b.enabled !== false,
+    gallery: (Array.isArray(b.gallery) ? b.gallery : [])
+      .map((u) => String(u || '').trim())
+      .filter((u) => /^https:\/\//.test(u))
+      .slice(0, 8),
+    facts: text(b.facts, 200),
   };
 }
 
@@ -56,6 +63,25 @@ export async function POST(request) {
   // Reading a product page fills the form so a catalogue can be built by
   // pasting links rather than retyping every listing — an empty catalogue is
   // the reason posts were generic in the first place.
+  // Re-read every product's own page, one at a time.
+  if (b.refresh_all) {
+    const { rows } = await query(
+      `SELECT * FROM products WHERE user_id = $1 AND url IS NOT NULL ORDER BY id`,
+      [userId]
+    );
+    let refreshed = 0;
+    const failed = [];
+    for (const p of rows) {
+      try {
+        await refreshProduct(p);
+        refreshed++;
+      } catch (e) {
+        failed.push(`${p.name}: ${e.message}`);
+      }
+    }
+    return NextResponse.json({ refreshed, failed });
+  }
+
   if (b.import_url) {
     try {
       return NextResponse.json({ draft: await importFromUrl(b.import_url) });
@@ -66,9 +92,10 @@ export async function POST(request) {
 
   const p = clean(b);
   const { rows } = await query(
-    `INSERT INTO products (user_id, name, description, benefits, url, image_url, price, tags, enabled)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-    [userId, p.name, p.description, p.benefits, p.url, p.image_url, p.price, p.tags, p.enabled]
+    `INSERT INTO products (user_id, name, description, benefits, url, image_url, price, tags, enabled, gallery, facts)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11) RETURNING *`,
+    [userId, p.name, p.description, p.benefits, p.url, p.image_url, p.price, p.tags, p.enabled,
+     JSON.stringify(p.gallery), p.facts]
   );
   return NextResponse.json({ product: { ...rows[0], posts: 0, clicks: 0 } });
 }

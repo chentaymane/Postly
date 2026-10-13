@@ -14,6 +14,16 @@ export const PLATFORM_NAMES = {
 
 export const FORMAT_NAMES = { single: 'Image', carousel: 'Carousel', video: 'Video' };
 
+// The creative angle a product post was written to (lib/recipes.js), in words.
+const ANGLES = {
+  showcase: 'Meet the product', peek: 'A look inside', gift: 'Gift idea',
+  pick: 'Which would you pick?', moment: 'The perfect moment', free: 'Free download',
+  season: 'Seasonal', classroom: 'For teachers & parents', deal: 'The deal',
+};
+export function angleName(key) {
+  return ANGLES[key] || '';
+}
+
 export function platformName(key) {
   return PLATFORM_NAMES[key] || key;
 }

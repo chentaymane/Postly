@@ -13,6 +13,7 @@ import { platformSupportsFormat, formatMismatchReason } from './platforms.js';
 import { dueSlots, nextRunAt as slotNextRunAt, safeTimezone, normaliseTimes, slotFor } from './schedule.js';
 import { requestRender } from './renderdispatch.js';
 import { pickProduct, markProductUsed } from './products.js';
+import { pickRecipe } from './recipes.js';
 
 export const POST_TYPES = ['promo', 'tips', 'engage', 'mixed'];
 export const FORMATS = ['single', 'carousel', 'video'];
@@ -162,7 +163,7 @@ async function releaseSlot(postId) {
 // Generates one post for one slot and puts it wherever it belongs: a draft for
 // review, a post held here until its minute, or published immediately when
 // its slot has already passed.
-async function runSlot(automation, { platform, slot, brand, index, rotation, product }) {
+async function runSlot(automation, { platform, slot, brand, index, rotation, product, recipe = null }) {
   // A platform that cannot take this format is checked before anything is
   // generated. TikTok takes video only, so an image automation with TikTok
   // selected used to write and pay for a post the platform then rejected —
@@ -189,7 +190,7 @@ async function runSlot(automation, { platform, slot, brand, index, rotation, pro
     return { platform, slot: slot.key, ok: true, status: 'already made', skipped: true };
   }
 
-  const input = inputFor(automation, brand, { index, rotation, product });
+  const input = { ...inputFor(automation, brand, { index, rotation, product }), recipe };
 
   let content;
   try {
@@ -232,7 +233,7 @@ async function runSlot(automation, { platform, slot, brand, index, rotation, pro
         hashtags = $6, cta = $7, pin_title = $8, pin_description = $9,
         image_url = $10, image_urls = $11::jsonb, script = $12::jsonb,
         video_status = $13, destination_url = $14, delivery = $15,
-        product_id = $16,
+        product_id = $16, recipe = $17,
         error_message = NULL, updated_at = now()
       WHERE id = $1
       RETURNING *`,
@@ -247,6 +248,7 @@ async function runSlot(automation, { platform, slot, brand, index, rotation, pro
       input.destinationUrl || null,
       mustWait ? null : 'postly',
       product?.id || null,
+      content.recipe || null,
     ]
   );
   const post = filled[0];
@@ -362,6 +364,14 @@ export async function runAutomation(automation, {
       pinnedId: automation.product_id,
     });
 
+    // One creative angle per slot too, for the same reason: Instagram and
+    // Pinterest at 09:00 should tell the same story about the same book. The
+    // seed moves with the slot and the run, so the angle changes from post to
+    // post instead of every slot opening the same way.
+    const recipe = product
+      ? pickRecipe(product, { postType: automation.post_type, seed: i + rotation + (automation.run_count || 0), brand }).key
+      : null;
+
     // Start each slot on a different platform.
     //
     // The list was walked in the order it was stored, so when a tick ran out of
@@ -384,7 +394,7 @@ export async function runAutomation(automation, {
       let result;
       try {
         result = await runSlot(automation, {
-          platform, slot, brand, index: i, rotation, product,
+          platform, slot, brand, index: i, rotation, product, recipe,
         });
       } catch (e) {
         result = { platform, slot: slot.key, ok: false, error: e.message };

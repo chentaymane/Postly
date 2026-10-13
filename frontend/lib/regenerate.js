@@ -8,6 +8,8 @@ import { query } from './db.js';
 import { generateContent, buildPrompts, generateCopy } from './pipeline.js';
 import { withUserKeys } from './keycontext.js';
 import { inputFor } from './automations.js';
+import { canDesign } from './designer.js';
+import { pickRecipe } from './recipes.js';
 
 // A post can be re-written while it is still ours to change: a draft, a
 // failure, or a post held here for its minute. Once an aggregator holds it, or
@@ -70,9 +72,24 @@ export async function regeneratePost(post, { mode = 'text', productId } = {}) {
   const context = await loadContext(post, productId);
   const productChanged = productId !== undefined && Number(productId || 0) !== Number(post.product_id || 0);
   const isVideo = post.format === 'video';
-  const remakeImages = !isVideo && (mode === 'all' || productChanged);
+
+  // A post designed from the product's own pictures carries its words on the
+  // images, so new words always mean new slides — and drawing them is quick.
+  // "New angle" moves it to a different creative recipe; "rewrite" keeps it.
+  const designed = !isVideo && canDesign(context.product);
+  const remakeImages = designed || (!isVideo && (mode === 'all' || productChanged));
 
   const input = briefFor(post, context);
+  if (designed) {
+    input.recipe = mode === 'all' || productChanged || !post.recipe
+      ? pickRecipe(context.product, {
+          postType: context.automation?.post_type || 'mixed',
+          seed: Math.floor(Math.random() * 1000),
+          brand: context.brand,
+          avoid: post.recipe,
+        }).key
+      : post.recipe;
+  }
   const forPinterest = post.platform === 'pinterest';
 
   const content = await withUserKeys(post.user_id, async () => {
@@ -99,7 +116,7 @@ export async function regeneratePost(post, { mode = 'text', productId } = {}) {
         image_url = COALESCE($7, image_url),
         image_urls = COALESCE($8::jsonb, image_urls),
         destination_url = COALESCE($9, destination_url),
-        product_id = $10, theme = $11,
+        product_id = $10, theme = $11, recipe = COALESCE($12, recipe),
         error_message = CASE WHEN status = 'failed' THEN error_message ELSE NULL END,
         updated_at = now()
       WHERE id = $1 AND ${REWRITABLE_SQL}
@@ -114,6 +131,7 @@ export async function regeneratePost(post, { mode = 'text', productId } = {}) {
       input.destinationUrl || null,
       context.product?.id || null,
       input.theme,
+      content.recipe || null,
     ]
   );
   if (rows.length === 0) {

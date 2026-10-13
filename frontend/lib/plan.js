@@ -40,7 +40,7 @@ export async function buildSchedule(userId, { days = 7, now = new Date() } = {})
               q.image_url, q.image_urls, q.video_url, q.video_status, q.video_error,
               q.error_message, q.failure_kind, q.next_attempt_at, q.attempts,
               q.published_post_id, q.platform_post_url, q.remote_status, q.slot_key,
-              q.product_id, q.theme, q.destination_url, q.duration_seconds, q.updated_at,
+              q.product_id, q.theme, q.destination_url, q.duration_seconds, q.updated_at, q.recipe,
               p.name AS product_name, p.image_url AS product_image,
               -- A published post is placed at the moment it went out; anything
               -- else at the moment it is for.

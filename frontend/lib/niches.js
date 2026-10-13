@@ -26,10 +26,11 @@ export const NICHES = {
         'screen-free; costs a fraction of a physical version',
       default_tone: 'warm and cozy',
       custom_prompt:
-        'Lead with the moment the download gets used, not the file itself — the quiet twenty minutes ' +
-        'it buys, the rainy afternoon it rescues. Say "instant download" and "print at home as many ' +
-        'times as you want" plainly, because those are the two things buyers check for. ' +
-        'Never imply anything is shipped physically.',
+        'Every post is about one specific product from the shop — name it and make it the hero. ' +
+        'Use its real details: the theme, what is on the pages, how many pages, the price (or that it ' +
+        'is free). Say "instant download" and "print at home as many times as you want" plainly, because ' +
+        'those are the two things buyers check for. Never imply anything is shipped physically, and ' +
+        'never invent reviews, numbers or discounts.',
     },
   },
 

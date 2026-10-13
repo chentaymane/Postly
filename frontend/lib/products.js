@@ -120,12 +120,108 @@ export async function importFromUrl(rawUrl) {
 
   const image = metaTag(html, 'og:image', 'og:image:secure_url', 'twitter:image');
 
-  return {
+  const basic = {
     name: title.slice(0, 200),
     description: metaTag(html, 'og:description', 'twitter:description', 'description').slice(0, 1000),
     // Relative og:image values are rare but do happen.
     image_url: image ? new URL(image, url).toString().slice(0, 1000) : '',
     price: metaTag(html, 'product:price:amount', 'og:price:amount'),
     url: url.toString().slice(0, 1000),
+    gallery: [],
+    facts: '',
   };
+
+  // A richer reading where the shop offers one. The Open Graph tags carry a
+  // truncated description and one small preview; the page itself often has
+  // every preview image at full size and the facts a buyer checks first.
+  const rich = gumroadData(html);
+  if (!rich) return basic;
+  return {
+    ...basic,
+    description: rich.description || basic.description,
+    image_url: rich.images[0] || basic.image_url,
+    gallery: rich.gallery,
+    price: rich.price || basic.price,
+    facts: rich.facts,
+  };
+}
+
+// The product data a Gumroad page embeds for its own app: every preview image
+// at full size, the full description, the page count and the price in cents.
+// Read defensively — it is a page, not an API, and may change shape.
+function gumroadData(html) {
+  const text = decodeEntities(html);
+  if (!/"covers":\[/.test(text) || !/gumroad/i.test(text)) return null;
+
+  const str = (key) => {
+    const m = new RegExp(`"${key}":"((?:[^"\\\\]|\\\\.)*)"`).exec(text);
+    if (!m) return '';
+    try { return JSON.parse(`"${m[1]}"`); } catch { return m[1]; }
+  };
+  const num = (key) => {
+    const m = new RegExp(`"${key}":(-?\\d+)`).exec(text);
+    return m ? Number(m[1]) : null;
+  };
+
+  let covers = [];
+  const cm = /"covers":(\[[\s\S]*?\]),"main_cover_id"/.exec(text);
+  if (cm) {
+    try { covers = JSON.parse(cm[1]); } catch { covers = []; }
+  }
+  const images = covers
+    .filter((c) => !c.type || c.type === 'image')
+    .map((c) => c.original_url || c.url)
+    .filter((u) => /^https:\/\//.test(u || ''));
+
+  // The square thumbnail is usually the cover alone — the picture a buyer
+  // recognises, and a good second slide after the full mockup.
+  const thumb = str('thumbnail_url');
+  const gallery = [thumb, ...images.slice(1)].filter((u) => /^https:\/\//.test(u || ''));
+
+  const descriptionHtml = str('description_html');
+  const description = descriptionHtml
+    .replace(/<\s*(br|\/p|\/li|\/h\d)\s*\/?>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '• ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n\s*\n+/g, '\n')
+    .trim()
+    .slice(0, 2000);
+
+  const cents = num('price_cents');
+  const currency = (str('currency_code') || 'usd').toUpperCase();
+  const symbol = { USD: '$', EUR: '€', GBP: '£' }[currency];
+  const price = cents === null
+    ? ''
+    : cents === 0
+      ? 'Free'
+      : symbol ? `${symbol}${(cents / 100).toFixed(2)}` : `${(cents / 100).toFixed(2)} ${currency}`;
+
+  // "17 Pages- Format PDF - 2.6MB" → "17 Pages · Format PDF · 2.6MB"
+  const facts = str('summary').split(/\s*-\s+|\s+-\s*/).map((s) => s.trim()).filter(Boolean).join(' · ').slice(0, 200);
+
+  return { images, gallery, description, price, facts };
+}
+
+// Re-reads a product's own page and refreshes what the posts are built from:
+// the pictures, the full description, the facts and the price. The name, the
+// link, the user's own notes ("why someone buys this") and the tags are left
+// alone — those may have been written by hand.
+export async function refreshProduct(product) {
+  if (!product?.url) throw new Error('this product has no page link to read');
+  const page = await importFromUrl(product.url);
+  const { rows } = await query(
+    `UPDATE products SET
+        image_url = COALESCE(NULLIF($2, ''), image_url),
+        gallery = $3::jsonb,
+        description = COALESCE(NULLIF($4, ''), description),
+        facts = NULLIF($5, ''),
+        price = COALESCE(NULLIF($6, ''), price),
+        updated_at = now()
+      WHERE id = $1
+      RETURNING *`,
+    [product.id, page.image_url, JSON.stringify(page.gallery || []), page.description, page.facts, page.price]
+  );
+  return rows[0];
 }

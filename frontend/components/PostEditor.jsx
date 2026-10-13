@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { PlatformIcon, NavIcon } from './BrandIcons';
 import {
-  PLATFORM_COLORS, FORMAT_NAMES, platformName, statusOf, slidesOf, whenLong, relative,
+  PLATFORM_COLORS, FORMAT_NAMES, platformName, statusOf, slidesOf, whenLong, relative, angleName,
 } from './postkit';
 
 const FIELDS = ['caption', 'hashtags', 'cta', 'pin_title', 'pin_description'];
@@ -118,7 +118,9 @@ export default function PostEditor({ post: initial, products = [], onClose, onCh
     setPost(next);
     setFields(fieldsOf(next));
     setSlide(0);
-    onChanged(json.remadeImages ? 'New picture and text are in' : 'Text rewritten');
+    onChanged(next.recipe && json.remadeImages
+      ? `Rewritten — ${angleName(next.recipe) || 'new version'}`
+      : json.remadeImages ? 'New picture and text are in' : 'Text rewritten');
   }
 
   async function changeProduct(value) {
@@ -194,6 +196,7 @@ export default function PostEditor({ post: initial, products = [], onClose, onCh
             <p className="sheet-sub">
               {name}
               {post.format && ` · ${FORMAT_NAMES[post.format] || post.format}`}
+              {angleName(post.recipe) && ` · ${angleName(post.recipe)}`}
               {post.scheduled_at && post.status !== 'published' && ` · ${relative(post.scheduled_at)}`}
             </p>
           </div>
@@ -316,12 +319,14 @@ export default function PostEditor({ post: initial, products = [], onClose, onCh
           {can.rewrite && (
             <div className="sheet-rewrite">
               <span className="sheet-rewrite-label">Not quite right?</span>
-              <button className="btn btn-outline btn-sm" disabled={anyBusy} onClick={() => rewrite('text')}>
-                {busy === 'text' ? <span className="spinner" /> : 'Rewrite text'}
+              <button className="btn btn-outline btn-sm" disabled={anyBusy} onClick={() => rewrite('text')}
+                      title={post.recipe ? 'Same angle, new words — the slides are redrawn with them' : 'New words, same picture'}>
+                {busy === 'text' ? <span className="spinner" /> : 'Rewrite'}
               </button>
               {!isVideo && (
-                <button className="btn btn-outline btn-sm" disabled={anyBusy} onClick={() => rewrite('all')}>
-                  {busy === 'all' ? <span className="spinner" /> : 'New picture + text'}
+                <button className="btn btn-outline btn-sm" disabled={anyBusy} onClick={() => rewrite('all')}
+                        title={post.recipe ? 'A different creative angle on the same product' : 'New picture and new words'}>
+                  {busy === 'all' ? <span className="spinner" /> : post.recipe ? 'Try another angle' : 'New picture + text'}
                 </button>
               )}
             </div>

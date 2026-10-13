@@ -530,6 +530,16 @@ ALTER TABLE queued_posts
     ADD COLUMN IF NOT EXISTS product_id BIGINT REFERENCES products(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_queued_posts_product ON queued_posts (product_id);
 
+-- More of the product's own pictures (the cover alone, preview pages), and the
+-- short facts a buyer checks first ("17 pages · PDF"). Posts are designed from
+-- these, so they show the real thing rather than a generated scene.
+ALTER TABLE products ADD COLUMN IF NOT EXISTS gallery JSONB;
+ALTER TABLE products ADD COLUMN IF NOT EXISTS facts TEXT;
+
+-- The creative angle a post was written to (see lib/recipes.js), so the
+-- rotation can vary it and the Schedule page can say what it is.
+ALTER TABLE queued_posts ADD COLUMN IF NOT EXISTS recipe TEXT;
+
 -- An automation may be pinned to one product, or left to rotate through all of
 -- them. NULL means rotate.
 ALTER TABLE automations
