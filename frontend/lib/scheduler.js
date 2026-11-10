@@ -93,12 +93,12 @@ async function acquireLease(owner, ttlMs) {
 // Hand the lease back immediately rather than letting it time out: the next
 // driver along should not have to wait out the remainder of a budget this tick
 // never needed.
-async function releaseLease() {
+async function releaseLease(owner) {
   await query(
     `UPDATE system_state
         SET value = jsonb_set(value, '{until}', to_jsonb(now()::text)), updated_at = now()
-      WHERE key = $1`,
-    [LEASE_KEY]
+      WHERE key = $1 AND value->>'owner' = $2`,
+    [LEASE_KEY, owner]
   );
 }
 
@@ -620,7 +620,7 @@ export async function runSchedulerTick({
   } finally {
     // Never leave the lease held on the way out: an error here would otherwise
     // lock every other driver out until the grace period expired.
-    await releaseLease().catch(() => {});
+    await releaseLease(owner).catch(() => {});
   }
 }
 

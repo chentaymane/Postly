@@ -10,6 +10,7 @@
 // explicit env override still wins, for a deployment that wants to pin.
 
 import { keyFor } from './keycontext.js';
+import { createHash } from 'node:crypto';
 
 // Preference order per provider, best first. These are matched as prefixes
 // against whatever the provider reports, so a dated variant
@@ -64,6 +65,14 @@ const cache = new Map();
 // outage. Once the provider says the pinned model is gone, we stop asking.
 const rejectedOverride = new Set();
 
+// Availability belongs to a credential: one customer's restricted key must
+// never poison another customer's model choice on a shared warm instance.
+async function scopeFor(kind) {
+  const key = await keyFor(kind);
+  const fingerprint = createHash('sha256').update(key || '').digest('hex');
+  return `${kind}:${fingerprint}`;
+}
+
 async function listModels(kind) {
   const url = LIST_URL[kind];
   if (!url) return null;
@@ -85,9 +94,11 @@ async function listModels(kind) {
 
 // The best available model for a provider.
 export async function modelFor(kind) {
+  const scope = await scopeFor(kind);
   const override = process.env[ENV_OVERRIDE[kind]];
-  if (override && !rejectedOverride.has(kind)) return override;
-  if (cache.has(kind)) return cache.get(kind);
+  if (override && !rejectedOverride.has(scope)) return override;
+  const cached = cache.get(scope);
+  if (cached && cached.until > Date.now()) return cached.model;
 
   const available = await listModels(kind);
   let chosen = FALLBACK[kind];
@@ -102,16 +113,21 @@ export async function modelFor(kind) {
     if (hit) chosen = hit;
   }
 
-  cache.set(kind, chosen);
+  if (cache.size >= 200) cache.delete(cache.keys().next().value);
+  cache.set(scope, { model: chosen, until: Date.now() + 3600000 });
   return chosen;
 }
 
 // Called when a provider rejects the model we asked for. Drops the cached
 // choice so the next attempt rediscovers, and reports what else is on offer.
 export async function forgetModel(kind) {
-  cache.delete(kind);
+  const scope = await scopeFor(kind);
+  cache.delete(scope);
   // If a pinned model is what just failed, stop trusting the pin.
-  if (process.env[ENV_OVERRIDE[kind]]) rejectedOverride.add(kind);
+  if (process.env[ENV_OVERRIDE[kind]]) {
+    if (rejectedOverride.size >= 200) rejectedOverride.delete(rejectedOverride.values().next().value);
+    rejectedOverride.add(scope);
+  }
   const available = await listModels(kind);
   return available || [];
 }
@@ -119,9 +135,9 @@ export async function forgetModel(kind) {
 // What the deployment pinned, and whether the provider still serves it. Used by
 // the settings page to say "GROQ_MODEL names a model that no longer exists"
 // rather than leaving the operator to infer it from a failed post.
-export function pinnedModel(kind) {
+export async function pinnedModel(kind) {
   const value = process.env[ENV_OVERRIDE[kind]] || null;
-  return value ? { envVar: ENV_OVERRIDE[kind], value, rejected: rejectedOverride.has(kind) } : null;
+  return value ? { envVar: ENV_OVERRIDE[kind], value, rejected: rejectedOverride.has(await scopeFor(kind)) } : null;
 }
 
 // True when this error means "that model is gone", as opposed to a bad key,

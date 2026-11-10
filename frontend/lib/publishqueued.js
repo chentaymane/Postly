@@ -12,6 +12,8 @@ import { appBaseUrl } from './platforms.js';
 import { withUserKeys } from './keycontext.js';
 import { secretForCredential } from './credentials.js';
 import { classifyFailure, nextAttemptAt, exhaustedMessage, MAX_ATTEMPTS } from './retry.js';
+import { composeMessage } from './content.js';
+import { taggedLink } from './attribution.js';
 
 // Platforms that refuse a redirect in a post's link.
 //
@@ -24,21 +26,6 @@ const NO_REDIRECT_PLATFORMS = new Set(['pinterest']);
 // Attribution without a redirect. The destination sees which platform sent the
 // visitor through its own analytics, which is what the tracker was for; we just
 // do not get to count the click ourselves.
-function taggedLink(destination, platform, postId) {
-  try {
-    const url = new URL(destination);
-    if (!url.searchParams.has('utm_source')) url.searchParams.set('utm_source', platform);
-    if (!url.searchParams.has('utm_medium')) url.searchParams.set('utm_medium', 'social');
-    if (!url.searchParams.has('utm_campaign')) url.searchParams.set('utm_campaign', 'postly');
-    url.searchParams.set('utm_content', String(postId));
-    return url.toString();
-  } catch {
-    // Not a parseable URL — send it exactly as the user typed it rather than
-    // mangling it into something that will not resolve.
-    return destination;
-  }
-}
-
 // The link that goes out on a post: our tracker, which records the click and
 // forwards to the destination. Falls back to the raw URL when the app has no
 // public base (so a local run still produces a working link), and skips the
@@ -67,7 +54,8 @@ export function contentFromPost(post) {
     videoTitle: post.pin_title || post.theme || null,
     coverUrl: post.image_url || null,
     destinationUrl: trackedLink(post),
-    fullMessage: [post.caption, post.cta, post.hashtags].filter(Boolean).join('\n\n'),
+    fullMessage: composeMessage({ caption: post.caption, cta: post.cta, hashtags: post.hashtags,
+      destinationUrl: trackedLink(post) }, post.platform),
   };
 }
 

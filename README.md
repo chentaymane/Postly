@@ -8,7 +8,7 @@ TikTok.
 [![Licence: AGPL v3](https://img.shields.io/badge/licence-AGPL--3.0-blue.svg)](LICENSE)
 
 It runs free: Vercel's hobby tier, Neon's free Postgres, a free Groq key, and
-GitHub Actions for the scheduler and video rendering. No paid dependency is
+an external scheduler and GitHub Actions for video rendering. No paid dependency is
 required to run the whole thing for yourself.
 
 It is **multi-tenant by design** — every connection, post and API key belongs to
@@ -203,8 +203,18 @@ Two things make it safe to run often, late, twice, or by hand:
 does not degrade, it fails the whole deployment. `vercel.json` therefore asks
 for `0 6 * * *`, which on Hobby is a once-a-day backstop and nothing more.
 
-The real cadence comes from **`.github/workflows/scheduler.yml`**, which pings
-the tick every 5 minutes for free. Set it up once:
+The real cadence comes from an **external scheduler**. The GitHub scheduler
+workflow is **manual only**; it does not run every five minutes. Point your
+pinger at `/api/cron/autopilot?wait=0` with the `x-cron-secret` header. The
+`wait=0` option responds immediately while the tick finishes in the background,
+so a slow generation does not cause a pinger timeout.
+
+The Automations page supplies a cron expression in **UTC**, covering timezone
+offsets over the coming year. Set the external scheduler's timezone to UTC and
+refresh the expression when changing your automations. The expression can
+include extra wake-ups because cron uses independent hour and minute lists.
+
+For the manual GitHub workflow, configure:
 
 > Settings → Secrets and variables → Actions
 > - secret **`CRON_SECRET`** — the same value as the Vercel env var
@@ -216,7 +226,7 @@ it is not survivable with a once-a-day cron, which is the whole point.
 
 | Driver | Cadence | Notes |
 |--------|---------|-------|
-| **GitHub Actions** (set up above) | ~5 min | Free. Disabled automatically after 60 days of repo inactivity |
+| **GitHub Actions** | manual only | Use workflow_dispatch for troubleshooting |
 | **Vercel cron** | daily | Backstop. Becomes a real 5-min cron on Pro (`*/5 * * * *`) |
 | [cron-job.org](https://cron-job.org) | 1 min | Free alternative if GitHub's delays annoy you |
 | An open tab | ~4 min | The app pings the scheduler itself — a safety net, not a plan |
@@ -347,8 +357,8 @@ The part most likely to surprise you, so it is worth stating plainly.
 
 **Vercel's Hobby plan only accepts a daily cron expression** — a sub-daily one
 does not degrade, it fails the whole deployment. So `vercel.json` asks for a
-daily backstop and the real cadence comes from
-[`.github/workflows/scheduler.yml`](.github/workflows/scheduler.yml).
+daily backstop. The real cadence must come from an external scheduler; the
+[GitHub workflow](.github/workflows/scheduler.yml) is manual only.
 
 GitHub delays scheduled workflows heavily: measured on this repo, `*/5` produced
 **11 runs in 22 hours**. That is survivable only because missed slots are caught
@@ -357,6 +367,22 @@ up. For posts that must land on the minute, point a real pinger
 `x-cron-secret` header.
 
 ## Contributing
+
+For a read-only health audit, run `npm run diagnose` from `frontend`. It checks
+the configured app, database heartbeat, queue, confirmed deliveries and possible
+timezone mismatches without generating or publishing anything. Missing local
+environment variables do not describe the deployed environment.
+
+To check an Instagram delivery directly with the configured publishing provider,
+run `node scripts/check-delivery.mjs instagram`. It prints the account identity
+and the three most recent delivery results, never tokens. A provider confirmation
+does not prove a public post remains available; open the returned permalink too.
+
+`npm test` runs offline regressions for content validation, provider isolation,
+CTA formatting, attribution and timezone scheduling. Pinterest links go directly
+to the store with UTM tags; their clicks are measured in store analytics, not
+Postly's redirect counter. Known link-preview bots are excluded from new click
+records; historical counts are unchanged.
 
 Issues and pull requests are welcome.
 

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { query } from '../../../lib/db';
+import { taggedLink, isLinkPreview } from '../../../lib/attribution';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -14,6 +15,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(request, { params }) {
   const id = Number(params.id);
   let destination = null;
+  let platform = 'postly';
 
   try {
     const { rows } = await query(
@@ -26,8 +28,9 @@ export async function GET(request, { params }) {
     );
     const post = rows[0];
     destination = post?.destination_url || post?.store_url || null;
+    platform = post?.platform || platform;
 
-    if (post) {
+    if (post && !isLinkPreview(request.headers)) {
       const h = request.headers;
       // Record before redirecting; the insert is cheap and indexed.
       await query(
@@ -55,15 +58,9 @@ export async function GET(request, { params }) {
   // Tag the outbound URL so the store's analytics attributes it too.
   let url;
   try {
-    url = new URL(destination);
+    url = taggedLink(destination, platform, Number.isFinite(id) ? id : null);
   } catch {
     return NextResponse.json({ error: 'invalid destination' }, { status: 500 });
   }
-  if (!url.searchParams.has('utm_source')) {
-    url.searchParams.set('utm_source', 'postly');
-    url.searchParams.set('utm_medium', 'social');
-    if (Number.isFinite(id)) url.searchParams.set('utm_content', `post-${id}`);
-  }
-
-  return NextResponse.redirect(url.toString(), 302);
+  return NextResponse.redirect(url, 302);
 }

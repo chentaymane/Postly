@@ -140,8 +140,8 @@ export const RECIPES = {
     when: (p, ctx) => ctx.digital,
     slides: ['hero', 'bullets', 'cta'],
     brief:
-      'Speak to teachers, homeschool parents and childminders. A printable means one purchase covers a whole '
-      + 'group — print as many copies as needed. Suggest one concrete way to use this product in a lesson, '
+      'Speak to teachers, homeschool parents and childminders. Do not assume a purchase grants classroom, '
+      + 'group or unlimited printing rights; mention those only when the product details explicitly grant them. Suggest one concrete way to use this product in a lesson, '
       + 'a quiet-time slot or a theme week.',
     headline: 'speaks to teachers or parents, 4-7 words',
   },

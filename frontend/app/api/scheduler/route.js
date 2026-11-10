@@ -57,7 +57,7 @@ export async function GET() {
   // hours would silently strand every other account's posts. Only the set of
   // hours leaves this query — no rows, no owners.
   const { rows: autos } = await query(
-    'SELECT enabled, times FROM automations WHERE enabled = true'
+    'SELECT enabled, times, timezone FROM automations WHERE enabled = true'
   );
   const cron = cronHintFor(autos);
 

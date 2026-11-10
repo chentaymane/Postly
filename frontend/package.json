@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start -p 3000",
     "lint": "next lint",
+    "test": "node --test scripts/regression.test.mjs",
+    "diagnose": "node scripts/diagnose.mjs",
     "db:setup": "node scripts/db-setup.mjs"
   },
   "dependencies": {

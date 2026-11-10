@@ -648,7 +648,7 @@ function SchedulerHealth({ health, onKick, kicking }) {
             so the scheduler only has to run at your posting hours.
             {health.cron && (
               <>
-                {' '}Set your cron to <code>{health.cron.expression}</code> — {health.cron.ticksPerDay} runs
+                {' '}Set your scheduler timezone to UTC and cron to <code>{health.cron.expression}</code> — {health.cron.ticksPerDay} runs
                 a day instead of {health.cron.ticksPerDayIfPolling}, which keeps the free database
                 allowance from running out.
               </>

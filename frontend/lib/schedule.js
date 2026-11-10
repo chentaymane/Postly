@@ -87,6 +87,15 @@ export function slotFor(automation, key) {
   return { date: key.slice(0, 10), time: parts.time, at, key, late: at.getTime() <= Date.now() };
 }
 
+// Reconcile an editable future post with its automation's wall-clock slot.
+// Existing deployments may have stored the wall-clock value as UTC.
+export function correctedScheduledAt(post, automation, now = new Date()) {
+  if (!post.slot_key || new Date(post.scheduled_at).getTime() <= now.getTime()) return null;
+  const slot = slotFor(automation, String(post.slot_key).split('|')[0]);
+  if (!slot || slot.at <= now || slot.at.getTime() === new Date(post.scheduled_at).getTime()) return null;
+  return slot.at.toISOString();
+}
+
 // The calendar date showing on a clock in `tz` at a given instant.
 export function zonedDateParts(instant, tz) {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -255,21 +264,25 @@ export function timezoneLabel(tz, at = new Date()) {
 // This emits an expression that fires only around the times that exist, with a
 // couple of retries after each so a missed or slow tick still catches up. The
 // database sleeps the rest of the day.
-export function cronHintFor(automations, { retries = 2, stepMinutes = 5 } = {}) {
+export function cronHintFor(automations, { retries = 2, stepMinutes = 5, now = new Date() } = {}) {
   const hours = new Set();
   const minutes = new Set();
 
   for (const a of automations || []) {
     if (!a?.enabled) continue;
+    // A crontab runs in the scheduler's zone, not the automation's zone.
+    // Include every offset seen over the coming year so DST (including
+    // Morocco's Ramadan change) does not silently move posting times.
+    const offsets = yearlyOffsets(a.timezone, now);
     for (const t of normaliseTimes(a.times)) {
       const parsed = parseTime(t);
       if (!parsed) continue;
-      hours.add(parsed.hh);
-      for (let n = 0; n <= retries; n++) {
-        // A retry that spills past the hour is dropped rather than wrapped:
-        // wrapping would add an hour nothing is scheduled in.
-        const m = parsed.mm + n * stepMinutes;
-        if (m < 60) minutes.add(m);
+      for (const offset of offsets) {
+        for (let n = 0; n <= retries; n++) {
+          const utcMinute = ((parsed.hh * 60 + parsed.mm - offset + n * stepMinutes) % 1440 + 1440) % 1440;
+          hours.add(Math.floor(utcMinute / 60));
+          minutes.add(utcMinute % 60);
+        }
       }
     }
   }
@@ -279,8 +292,28 @@ export function cronHintFor(automations, { retries = 2, stepMinutes = 5 } = {}) 
   const asList = (set) => Array.from(set).sort((x, y) => x - y).join(',');
   return {
     expression: `${asList(minutes)} ${asList(hours)} * * *`,
+    timezone: 'UTC',
     ticksPerDay: minutes.size * hours.size,
     // What the every-five-minutes advice actually costs, for comparison.
     ticksPerDayIfPolling: Math.round((24 * 60) / stepMinutes),
   };
+}
+
+const offsetCache = new Map();
+function yearlyOffsets(tz, now) {
+  const zone = safeTimezone(tz);
+  if (zone === 'UTC') return [0];
+  const day = now.toISOString().slice(0, 10);
+  const cached = offsetCache.get(zone);
+  if (cached?.day === day) return cached.offsets;
+  const offsets = new Set();
+  for (let n = 0; n <= 370; n++) {
+    const date = new Date(`${day}T12:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + n);
+    offsets.add(Math.round(offsetAt(date, zone) / 60000));
+  }
+  const result = [...offsets];
+  if (offsetCache.size >= 100) offsetCache.clear();
+  offsetCache.set(zone, { day, offsets: result });
+  return result;
 }

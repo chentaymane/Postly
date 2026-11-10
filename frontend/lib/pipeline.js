@@ -19,6 +19,26 @@ import { designSlides, canDesign } from './designer.js';
 import { pickRecipe, recipeBrief, occasionFor } from './recipes.js';
 import { fetchGeneratedImage } from './imagehost.js';
 import { productBrief } from './products.js';
+import { composeMessage, normaliseHashtags } from './content.js';
+
+function platformBrief(platform) {
+  if (platform === 'pinterest') return 'Write for someone searching for a useful idea: name the product type and audience naturally in the title and description. Explain what they get and why to click; avoid comment bait.';
+  if (platform === 'instagram') return 'Keep the caption body under 100 words with short paragraphs. Lead with a concrete benefit or relatable moment, give one useful detail, and reserve one next step for cta. Do not promise a clickable caption link.';
+  return 'Keep the body concise, with short paragraphs and one useful detail. Reserve one clear next step for cta.';
+}
+
+async function withRecentHooks(prompts, platform) {
+  const userId = currentUserIdFromContext();
+  if (!userId) return prompts;
+  try {
+    const { rows } = await query(`SELECT caption FROM queued_posts
+      WHERE user_id = $1 AND platform = $2 AND status IN ('published','scheduled','draft')
+        AND caption IS NOT NULL ORDER BY id DESC LIMIT 6`, [userId, platform]);
+    const hooks = rows.map((r) => String(r.caption).split('\n')[0].slice(0, 160)).filter(Boolean);
+    if (!hooks.length) return prompts;
+    return { ...prompts, userPrompt: `${prompts.userPrompt}\n\nRecent opening lines from this account (reference only):\n${JSON.stringify(hooks)}\nChoose a different opening structure and angle. Do not repeat these hooks or borrow their product facts.` };
+  } catch { return prompts; }
+}
 
 // ---------------------------------------------------------------------------
 // Prompts
@@ -80,7 +100,10 @@ export function buildPrompts({
     'a wall of text is never read on a phone.\n' +
     '9. Hashtags: 6-10, mixing buyer-intent tags with small niche-community tags. ' +
     'No tag with over 10 million posts (#love, #instagood, #photooftheday) — those reach nobody.\n' +
-    '10. Sound like one real person talking to one real person. Contractions, not corporate.\n';
+    '10. Sound like one real person talking to one real person. Contractions, not corporate.\n' +
+    'Use facts from the brief only: never invent statistics, product features, reviews, results, licenses or scarcity. ' +
+    'Put the call to action only in cta, never repeat it in caption. Use one clear next step. ' +
+    'Include a natural phrase the buyer would search for; avoid keyword stuffing and engagement bait.\n';
 
   // Per-format output contract. The image direction lives here rather than in
   // the style suffix because the model knows what THIS post is about — a generic
@@ -177,6 +200,7 @@ ${ownRules}` : '',
     (description ? ` Details: ${description}.` : '') +
     ` Tone: ${tone}.` +
     ` Platform: ${platform || 'social media'}.` +
+    ` ${platformBrief(platform)}` +
     ` ${goal}` +
     (forPinterest ? ', plus the Pinterest search-optimised title and description.' : '.') +
     (instructionBlock ? '\n\n' + instructionBlock : '');
@@ -186,7 +210,7 @@ ${ownRules}` : '',
   const productForImage = brand?.products || subject;
   const imagePrompt = `a person using ${productForImage}, real unposed moment, ${subject}`;
 
-  return { subject, systemPrompt, userPrompt, imagePrompt };
+  return { subject, systemPrompt, userPrompt, imagePrompt, expectedFormat: format };
 }
 
 // Prompts for a post that sells ONE product directly, written to a creative
@@ -226,7 +250,9 @@ export function buildProductPrompts({
     'one real person; contractions, not corporate.\n' +
     '8. Hashtags: 6-10, product-specific ones first (its theme, its type), then small niche communities. ' +
     'Nothing with over 10 million posts.\n' +
-    `9. The call to action points at this product's link (${action}). Never paste a URL.\n` +
+    `9. The call to action points at this product's link (${action}). Never paste a URL. Put it only in cta, not caption. ` +
+    'Use one clear next step. Include natural buyer search terms without keyword stuffing. ' +
+    'Never promise classroom distribution, commercial use or unlimited copies unless the details explicitly grant that license.\n' +
     '10. WORDS ON THE IMAGES — short, punchy, no emoji, no hashtags, no quotation marks, same language as the caption: ' +
     `"headline": ${r.headline}; ` +
     '"subhead": at most 12 words, one concrete fact or promise from the details; ' +
@@ -260,6 +286,7 @@ export function buildProductPrompts({
     product.tags ? `Themes: ${plain(product.tags, 200)}.` : '',
     ctx.occasion ? `Coming up: ${ctx.occasion.name}${ctx.occasion.days != null ? ` in ${ctx.occasion.days} days` : ''}.` : '',
     `Platform: ${platform || 'social media'}. Tone: ${tone || 'warm and friendly'}.`,
+    platformBrief(platform),
     language && language.toLowerCase() !== 'english'
       ? `WRITE EVERYTHING IN ${language.toUpperCase()} — caption, image words, hashtags, CTA and titles.`
       : '',
@@ -491,26 +518,23 @@ async function callWriterWithModel(kind, { systemPrompt, userPrompt }, model) {
   throw new Error(`unsupported dialect for ${kind}`);
 }
 
-function parseCopy(raw, fallbackSubject) {
+export function parseCopy(raw, fallbackSubject) {
   let text = String(raw || '').trim()
     .replace(/^```(?:json)?/i, '')
     .replace(/```$/, '')
     .trim();
 
-  let parsed = {};
+  let parsed;
   try {
     parsed = JSON.parse(text);
   } catch {
-    // Model ignored the JSON instruction — salvage the prose as the caption.
-    parsed = { caption: text };
+    throw new Error('writer returned invalid JSON; no draft was created');
   }
-
-  let tags = parsed.hashtags;
-  if (!Array.isArray(tags)) tags = String(tags || '').split(/[\s,]+/).filter(Boolean);
-  const hashtags = tags
-    .map((h) => '#' + String(h).replace(/^#/, '').replace(/\s+/g, ''))
-    .filter((h) => h.length > 1)
-    .join(' ');
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object'
+      || typeof parsed.caption !== 'string' || !parsed.caption.trim()) {
+    throw new Error('writer returned no usable caption');
+  }
+  const hashtags = normaliseHashtags(parsed.hashtags);
 
   const caption = String(parsed.caption || '').trim();
   const cta = String(parsed.cta || '').trim();
@@ -520,7 +544,7 @@ function parseCopy(raw, fallbackSubject) {
     hashtags,
     cta,
     pinTitle: String(parsed.pin_title || fallbackSubject || '').trim().slice(0, 100),
-    pinDescription: String(parsed.pin_description || caption).trim().slice(0, 800),
+    pinDescription: String(parsed.pin_description || caption).trim().slice(0, 480),
     imageScene: String(parsed.image_prompt || '').trim().slice(0, 500) || null,
     imageScenes: Array.isArray(parsed.image_prompts)
       ? parsed.image_prompts.map((s) => String(s).trim().slice(0, 500)).filter(Boolean).slice(0, 4)
@@ -549,7 +573,7 @@ function parseCopy(raw, fallbackSubject) {
         : [],
       ctaLine: String(parsed.cta_line || '').trim().slice(0, 60),
     },
-    fullMessage: [caption, cta, hashtags].filter(Boolean).join('\n\n'),
+    fullMessage: composeMessage({ caption, cta, hashtags }),
   };
 }
 
@@ -592,6 +616,12 @@ export async function generateCopy(prompts, subject) {
         const raw = await callWriter(kind, prompts);
         const copy = parseCopy(raw, subject);
         if (!copy.caption) throw new Error('empty caption returned');
+        if (prompts.expectedFormat === 'video' && !(copy.scenes?.length >= 2)) {
+          throw new Error('writer returned an incomplete video script');
+        }
+        if (prompts.expectedFormat === 'carousel' && !(copy.imageScenes?.length >= 2)) {
+          throw new Error('writer returned an incomplete carousel');
+        }
         return { ...copy, provider: kind };
       } catch (e) {
         const wait = /rate limit|429|too many requests/i.test(e.message)
@@ -877,9 +907,7 @@ export const publishers = {
         ? 'https://graph.instagram.com/v21.0'
         : 'https://graph.facebook.com/v21.0';
     const token = conn.access_token;
-    const caption = [content.caption, content.cta, content.hashtags]
-      .filter(Boolean)
-      .join('\n\n')
+    const caption = composeMessage(content, 'instagram')
       .slice(0, 2200); // Instagram caption limit
 
     const container = async (fields) => {
@@ -1238,7 +1266,7 @@ async function generateDesignedContent({ platform, input, brand, product }) {
     product, recipeKey: key, ctx: picked.ctx, platform, brand,
     tone: input.tone, customPrompt: input.customPrompt,
   });
-  const copy = await generateCopy(prompts, prompts.subject);
+  const copy = await generateCopy(await withRecentHooks(prompts, platform), prompts.subject);
 
   const kinds = input.format === 'carousel' ? recipeBrief(key, picked.ctx).slides : ['hero'];
   const assetKey = `${platform}-${Date.now().toString(36)}`;
@@ -1284,7 +1312,7 @@ export async function generateContent({ platform, input, brand, product = null }
   // different image than the one approved in Review.
   const assetKey = `${platform}-${Date.now().toString(36)}`;
   const prompts = buildPrompts({ ...input, forPinterest, platform, brand, product });
-  const copy = await generateCopy(prompts, prompts.subject);
+  const copy = await generateCopy(await withRecentHooks(prompts, platform), prompts.subject);
 
   // Video: a narrated script plus one vertical frame per scene. Rendering
   // happens outside the request — the worker picks the draft up and returns an
@@ -1457,6 +1485,7 @@ export function canScheduleRemotely(conn) {
 // Publishes previously generated content now, or hands it to an aggregator
 // with a time. Always resolves to { post_id, post_url, raw }.
 export async function publishContent({ conn, platform, content, scheduledAt }) {
+  content = { ...content, fullMessage: composeMessage(content, platform) };
   const provider = conn.provider || 'direct';
 
   if (scheduledAt && !canScheduleRemotely(conn)) {

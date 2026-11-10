@@ -141,13 +141,38 @@ function NextUp({ items }) {
 
 export default function DashboardPage() {
   const [d, setD] = useState(null);
+  const [error, setError] = useState(null);
+  const [reload, setReload] = useState(0);
   const router = useRouter();
 
   useEffect(() => {
-    fetch('/api/stats', { cache: 'no-store' })
-      .then((r) => { if (r.status === 401) { router.push('/login'); return null; } return r.json(); })
-      .then((json) => json && setD(json));
-  }, [router]);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    let active = true;
+    setError(null);
+    fetch('/api/stats', { cache: 'no-store', signal: controller.signal })
+      .then(async (r) => {
+        if (r.status === 401) { router.push('/login'); return null; }
+        if (!r.ok) throw new Error('Could not load your dashboard. Please try again.');
+        const json = await r.json();
+        if (!json.totals || !Array.isArray(json.automations)) throw new Error('Could not load your dashboard. Please try again.');
+        return json;
+      })
+      .then((json) => { if (active && json) setD(json); })
+      .catch((e) => { if (active) setError(e.name === 'AbortError' ? 'The dashboard took too long to respond. Please try again.' : 'Could not load your dashboard. Please try again.'); })
+      .finally(() => clearTimeout(timeout));
+    return () => { active = false; clearTimeout(timeout); controller.abort(); };
+  }, [router, reload]);
+
+  if (error) return (
+    <>
+      <div className="page-head"><h1>Home</h1></div>
+      <section className="panel" role="alert">
+        <p>{error}</p>
+        <button className="btn btn-accent" onClick={() => setReload((n) => n + 1)}>Try again</button>
+      </section>
+    </>
+  );
 
   if (!d) {
     return (
@@ -209,11 +234,14 @@ export default function DashboardPage() {
         <Kpi label="Published" value={t.published}
              sub={t.confirmed === t.published ? 'all confirmed live' : `${t.confirmed} confirmed live`}
              tone={t.published > 0 ? 'success' : undefined} href="/schedule?tab=published" />
-        <Kpi label="Link clicks" value={t.clicks} sub="from your posts" tone="accent" />
+        <Kpi label="Tracked link clicks" value={t.clicks} sub="visits through Postly links" tone="accent" />
         <Kpi label="Ready to go out" value={t.scheduled} sub="written and scheduled" href="/schedule" />
         <Kpi label="Automations" value={`${activeAutos}/${d.automations.length}`}
              sub={activeAutos > 0 ? 'running' : 'all paused'} href="/automations" />
       </div>
+
+      <p className="empty">Pinterest sends visitors directly to your product; check your store analytics for those clicks.
+        Instagram visitors use your profile link, so make sure it points to your shop. These visits may not appear here.</p>
 
       <section className="panel">
         <p className="panel-title">Last 14 days</p>
