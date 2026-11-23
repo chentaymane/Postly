@@ -2,7 +2,7 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { signIn } from 'next-auth/react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { PostlyLogo } from './BrandIcons';
 
 const FEATURES = [
@@ -17,7 +17,6 @@ function LoginFormInner() {
   const [form, setForm] = useState({ name: '', email: '', password: '' });
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
-  const router = useRouter();
   const params = useSearchParams();
 
   // Where the visitor was heading before the gate stopped them. Sending them
@@ -38,23 +37,44 @@ function LoginFormInner() {
     setBusy(true);
     setError(null);
 
-    if (isSignup) {
-      const res = await fetch('/api/signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+    let accountCreated = false;
+    try {
+      if (isSignup) {
+        const res = await fetch('/api/signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(form),
+        });
+        if (!res.ok) {
+          const json = await res.json();
+          setError(json.error || 'Sign up failed.');
+          return;
+        }
+        accountCreated = true;
+        setMode('signin');
+      }
+
+      let redirectTo = '/dashboard';
+      try {
+        const url = new URL(next, window.location.origin);
+        if (url.origin === window.location.origin && url.protocol === window.location.protocol) redirectTo = url.href;
+      } catch { /* Use the dashboard for an invalid return URL. */ }
+      const result = await signIn('credentials', {
+        email: form.email, password: form.password, redirect: false, redirectTo,
       });
-      const json = await res.json();
-      if (!res.ok) { setError(json.error || 'Sign up failed.'); setBusy(false); return; }
+      if (result?.error === 'CredentialsSignin') {
+        setError('Incorrect email or password.');
+      } else if (!result?.ok || result.error || !result.url) {
+        throw new Error('Sign-in unavailable');
+      } else {
+        window.location.assign(redirectTo);
+      }
+    } catch {
+      setError(accountCreated ? 'Account created. Please try signing in again.'
+        : 'Could not reach the account service. Please try again shortly.');
+    } finally {
+      setBusy(false);
     }
-
-    const result = await signIn('credentials', {
-      email: form.email, password: form.password, redirect: false,
-    });
-    if (result?.error) { setError('Incorrect email or password.'); setBusy(false); return; }
-
-    router.push(next);
-    router.refresh();
   }
 
   return (

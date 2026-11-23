@@ -13,10 +13,7 @@ import { NextResponse } from 'next/server';
 // cookie gains nothing — `auth()` runs again in the page and in every API
 // route, where the signature is actually verified.
 
-const PUBLIC_PATHS = new Set(['/', '/login', '/privacy', '/terms']);
-
-// Marketing and auth pages a signed-in user should not linger on.
-const REDIRECT_WHEN_SIGNED_IN = new Set(['/', '/login']);
+const PUBLIC_PATHS = new Set(['/', '/login', '/privacy', '/terms', '/api/signup']);
 
 const SESSION_COOKIES = [
   'authjs.session-token',
@@ -27,18 +24,19 @@ const SESSION_COOKIES = [
 ];
 
 function hasSession(request) {
-  return SESSION_COOKIES.some((name) => request.cookies.get(name));
+  return request.cookies.getAll().some(({ name }) => SESSION_COOKIES.includes(name.replace(/\.\d+$/, '')));
 }
 
 export function middleware(request) {
   const { pathname, search } = request.nextUrl;
   const signedIn = hasSession(request);
 
-  if (REDIRECT_WHEN_SIGNED_IN.has(pathname) && signedIn) {
-    return NextResponse.redirect(new URL('/dashboard', request.url));
+  if (PUBLIC_PATHS.has(pathname)) return NextResponse.next();
+  if (signedIn) {
+    const headers = new Headers(request.headers);
+    headers.set('x-pathname', pathname);
+    return NextResponse.next({ request: { headers } });
   }
-
-  if (PUBLIC_PATHS.has(pathname) || signedIn) return NextResponse.next();
 
   // Remember where they were headed, so signing in finishes the journey rather
   // than dumping everyone on the dashboard.

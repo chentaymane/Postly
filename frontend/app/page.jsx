@@ -1,3 +1,5 @@
+import { redirect } from 'next/navigation';
+import { auth } from '../lib/auth';
 import { PostlyLogo, PlatformIcon, NavIcon } from '../components/BrandIcons';
 import ThemeToggle from '../components/ThemeToggle';
 import './marketing.css';
@@ -81,7 +83,8 @@ function Tick() {
   );
 }
 
-export default function LandingPage() {
+export default async function LandingPage() {
+  if ((await auth())?.user?.id) redirect('/dashboard');
   return (
     <div className="marketing">
       <header className="mk-nav">

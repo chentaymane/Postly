@@ -1,3 +1,5 @@
+import { redirect } from 'next/navigation';
+import { auth } from '../../../lib/auth';
 import LoginForm from '../../../components/LoginForm';
 
 export const metadata = {
@@ -5,6 +7,7 @@ export const metadata = {
   description: 'Sign in to Postly, or create a free account.',
 };
 
-export default function LoginPage() {
+export default async function LoginPage() {
+  if ((await auth())?.user?.id) redirect('/dashboard');
   return <LoginForm />;
 }

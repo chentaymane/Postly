@@ -12,6 +12,10 @@ export async function POST(request) {
     return NextResponse.json({ error: 'invalid JSON body' }, { status: 400 });
   }
 
+  if (!body || typeof body !== 'object') {
+    return NextResponse.json({ error: 'invalid signup details' }, { status: 400 });
+  }
+
   const email = String(body.email || '').trim().toLowerCase();
   const password = String(body.password || '');
   const name = String(body.name || '').trim() || null;
@@ -38,6 +42,6 @@ export async function POST(request) {
     if (e.code === '23505') {
       return NextResponse.json({ error: 'an account with that email already exists' }, { status: 409 });
     }
-    return NextResponse.json({ error: e.message }, { status: 500 });
+    return NextResponse.json({ error: 'Account creation is temporarily unavailable.' }, { status: 500 });
   }
 }

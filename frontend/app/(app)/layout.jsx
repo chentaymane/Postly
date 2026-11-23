@@ -12,12 +12,13 @@ import '../schedule.css';
 export default async function AppLayout({ children }) {
   const session = await auth();
   const user = session?.user;
+  if (!user?.id) redirect('/login');
 
   // A brand new account has no keys, so nothing in the app can work yet —
   // send them to the wizard instead of a row of dead buttons. Checked here so
   // it covers every page at once.
   if (user?.id) {
-    const path = headers().get('x-invoke-path') || headers().get('x-pathname') || '';
+    const path = headers().get('x-pathname') || '';
     if (!path.startsWith('/welcome')) {
       const { rows } = await query(
         'SELECT count(*)::int AS n FROM user_credentials WHERE user_id = $1',
@@ -48,22 +49,6 @@ export default async function AppLayout({ children }) {
   async function doSignOut() {
     'use server';
     await signOut({ redirectTo: '/login' });
-  }
-
-  if (!user) {
-    return (
-      <div className="content">
-        <header className="topbar" style={{ display: 'flex' }}>
-          <a href="/login" aria-label="Postly home"><PostlyLogo /></a>
-          <div className="topbar-actions">
-            <ThemeToggle />
-            <a className="btn btn-outline btn-sm" href="/login">Sign in</a>
-          </div>
-        </header>
-        <main className="container">{children}</main>
-        <SiteFooter />
-      </div>
-    );
   }
 
   return (
