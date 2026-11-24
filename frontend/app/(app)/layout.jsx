@@ -19,7 +19,7 @@ export default async function AppLayout({ children }) {
   // it covers every page at once.
   if (user?.id) {
     const path = headers().get('x-pathname') || '';
-    if (!path.startsWith('/welcome')) {
+    if (path !== '/admin' && !path.startsWith('/welcome')) {
       const { rows } = await query(
         'SELECT count(*)::int AS n FROM user_credentials WHERE user_id = $1',
         [Number(user.id)]

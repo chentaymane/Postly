@@ -13,7 +13,7 @@ import { NextResponse } from 'next/server';
 // cookie gains nothing — `auth()` runs again in the page and in every API
 // route, where the signature is actually verified.
 
-const PUBLIC_PATHS = new Set(['/', '/login', '/privacy', '/terms', '/api/signup']);
+const PUBLIC_PATHS = new Set(['/login', '/privacy', '/terms']);
 
 const SESSION_COOKIES = [
   'authjs.session-token',
@@ -29,6 +29,15 @@ function hasSession(request) {
 
 export function middleware(request) {
   const { pathname, search } = request.nextUrl;
+  if (pathname.startsWith('/api/auth/')) return NextResponse.next();
+  if (pathname === '/' || pathname === '/dashboard') {
+    return NextResponse.redirect(new URL('/admin', request.url));
+  }
+  const previewPage = pathname === '/admin' || pathname === '/login' || pathname === '/privacy' || pathname === '/terms';
+  const adminRead = (pathname === '/api/admin' || pathname.startsWith('/api/admin/')) && request.method === 'GET';
+  if (!previewPage && !adminRead) {
+    return new NextResponse('Unavailable in the admin preview.', { status: 403 });
+  }
   const signedIn = hasSession(request);
 
   if (PUBLIC_PATHS.has(pathname)) return NextResponse.next();
@@ -47,9 +56,7 @@ export function middleware(request) {
 
 export const config = {
   matcher: [
-    // Everything except Next's own assets, the auth endpoints, the render and
-    // cron endpoints (which authenticate with their own tokens, not a session),
-    // and the click tracker (which must work for people who are not users).
-    '/((?!api/auth|api/cron|api/render|api/scheduler|r/|_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|svg|ico|webp|mp4|woff2?)$).*)',
+    // Gate all application endpoints, including cron and rendering.
+    '/((?!_next/static|_next/image|favicon.ico).*)',
   ],
 };

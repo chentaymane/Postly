@@ -1,18 +1,21 @@
 // `pg` is CommonJS — default import keeps this loadable by both the Next
 // bundler and plain `node` scripts.
 import pg from 'pg';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const { Pool } = pg;
 
 // Reuse a single pool across hot-reloads (dev) and warm lambdas (Vercel).
 let pool = global.__postlyPool;
 if (!pool) {
-  const connectionString = process.env.DATABASE_URL;
-  // Managed Postgres (Neon/Supabase) requires TLS; local does not.
-  const isLocal = /localhost|127\.0\.0\.1/.test(connectionString || '');
+  const connectionString = process.env.POSTLY_PREVIEW_DATABASE_URL;
+  if (connectionString && new URL(connectionString).hostname !== 'aws-0-us-east-2.pooler.supabase.com') {
+    throw new Error('Unexpected preview database host.');
+  }
   pool = new Pool({
     connectionString,
-    ssl: isLocal ? false : { rejectUnauthorized: false },
+    ssl: { ca: readFileSync(join(process.cwd(), 'lib', 'supabase-root.crt'), 'utf8') },
     max: 3, // serverless: keep the pool small
     // Neon drops connections when its compute suspends, and a warm lambda
     // can sit on a pooled connection for longer than that. Letting idle ones
@@ -37,6 +40,7 @@ export function getPool() {
 const DEAD_CONNECTION = /Connection terminated unexpectedly|Client has encountered a connection error|ECONNRESET|EPIPE/i;
 
 export async function query(text, params) {
+  if (!process.env.POSTLY_PREVIEW_DATABASE_URL) throw new Error('Preview database is not configured.');
   try {
     return await pool.query(text, params);
   } catch (e) {

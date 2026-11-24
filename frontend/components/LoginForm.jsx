@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, Suspense } from 'react';
 import { signIn } from 'next-auth/react';
 import { useSearchParams } from 'next/navigation';
 import { PostlyLogo } from './BrandIcons';
@@ -13,7 +13,6 @@ const FEATURES = [
 ];
 
 function LoginFormInner() {
-  const [mode, setMode] = useState('signin');
   const [form, setForm] = useState({ name: '', email: '', password: '' });
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -21,15 +20,8 @@ function LoginFormInner() {
 
   // Where the visitor was heading before the gate stopped them. Sending them
   // on afterwards is the difference between signing in and being interrupted.
-  const next = params.get('next') || '/dashboard';
+  const next = params.get('next') || '/admin';
 
-  // The landing page's two buttons differ only in this, so the form opens on
-  // the tab the visitor actually asked for.
-  useEffect(() => {
-    if (params.get('mode') === 'signup') setMode('signup');
-  }, [params]);
-
-  const isSignup = mode === 'signup';
   function update(k, v) { setForm((f) => ({ ...f, [k]: v })); }
 
   async function submit(e) {
@@ -37,24 +29,8 @@ function LoginFormInner() {
     setBusy(true);
     setError(null);
 
-    let accountCreated = false;
     try {
-      if (isSignup) {
-        const res = await fetch('/api/signup', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(form),
-        });
-        if (!res.ok) {
-          const json = await res.json();
-          setError(json.error || 'Sign up failed.');
-          return;
-        }
-        accountCreated = true;
-        setMode('signin');
-      }
-
-      let redirectTo = '/dashboard';
+      let redirectTo = '/admin';
       try {
         const url = new URL(next, window.location.origin);
         if (url.origin === window.location.origin && url.protocol === window.location.protocol) redirectTo = url.href;
@@ -70,8 +46,7 @@ function LoginFormInner() {
         window.location.assign(redirectTo);
       }
     } catch {
-      setError(accountCreated ? 'Account created. Please try signing in again.'
-        : 'Could not reach the account service. Please try again shortly.');
+      setError('Could not reach the account service. Please try again shortly.');
     } finally {
       setBusy(false);
     }
@@ -99,23 +74,13 @@ function LoginFormInner() {
 
       <section className="auth-form-side">
         <div className="auth-card">
-          <h1>{isSignup ? 'Create your account' : 'Welcome back'}</h1>
-          <p className="auth-sub">
-            {isSignup
-              ? 'Start publishing in a couple of minutes.'
-              : 'Sign in to manage your connections and posts.'}
-          </p>
+          <h1>Postly admin preview</h1>
+          <p className="auth-sub">Sign in to view the separate preview database.</p>
 
           {error && <div className="notice err"><strong>!</strong><span>{error}</span></div>}
 
           <form className="form" onSubmit={submit}>
-            {isSignup && (
-              <div className="field">
-                <label htmlFor="name">Name</label>
-                <input id="name" value={form.name} onChange={(e) => update('name', e.target.value)}
-                       placeholder="Your name" autoComplete="name" />
-              </div>
-            )}
+
 
             <div className="field">
               <label htmlFor="email">Email</label>
@@ -128,28 +93,16 @@ function LoginFormInner() {
               <label htmlFor="password">Password</label>
               <input id="password" type="password" required value={form.password}
                      onChange={(e) => update('password', e.target.value)}
-                     placeholder={isSignup ? 'At least 8 characters' : '••••••••'}
-                     autoComplete={isSignup ? 'new-password' : 'current-password'} />
+                     placeholder="••••••••"
+                     autoComplete="current-password" />
             </div>
 
             <button className="btn btn-accent btn-lg btn-block" disabled={busy}>
-              {busy ? <span className="spinner" /> : isSignup ? 'Create account' : 'Sign in'}
+              {busy ? <span className="spinner" /> : 'Sign in'}
             </button>
           </form>
 
-          <p className="auth-switch">
-            {isSignup ? 'Already have an account?' : "Don't have an account?"}
-            <button className="link-btn" onClick={() => { setMode(isSignup ? 'signin' : 'signup'); setError(null); }}>
-              {isSignup ? 'Sign in' : 'Sign up free'}
-            </button>
-          </p>
 
-          {isSignup && (
-            <p className="auth-legal">
-              By creating an account you agree to our{' '}
-              <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>.
-            </p>
-          )}
         </div>
       </section>
     </div>

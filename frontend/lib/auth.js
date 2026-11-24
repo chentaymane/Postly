@@ -34,6 +34,7 @@ const providers = [
 ];
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  secret: process.env.POSTLY_PREVIEW_AUTH_SECRET,
   session: { strategy: 'jwt' },
   pages: { signIn: '/login' },
   // Required on Vercel, where the host header is proxied.

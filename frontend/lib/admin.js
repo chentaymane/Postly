@@ -13,7 +13,7 @@
 import { query } from './db.js';
 
 function adminEmails() {
-  return String(process.env.ADMIN_EMAILS || '')
+  return String(process.env.POSTLY_PREVIEW_ADMIN_EMAIL || '')
     .split(',')
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
